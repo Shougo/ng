@@ -588,10 +588,13 @@ func (a *App) show() {
 	a.resizeWindowToGrid(a.scr.Width, a.scr.Height)
 	C.SDL_ShowWindow(a.win)
 	a.shown = true
-	// A hidden window takes the requested size at once; the size the
-	// window manager decides (a tiling one) arrives as an event, which
-	// also tells whether it overrides ng's sizes.
-	a.updatePixelSize(false)
+	// The size right after showing is the window manager's answer: a
+	// tiling one (sway) has already given the window its tile here, a
+	// floating window has the requested size. Traces showed that later
+	// events cannot tell this apart: on sway, resizing a tiled window
+	// shrinks the drawing surface and SDL then reports exactly the
+	// requested size.
+	a.updatePixelSize(true)
 	// Resolve the size request within settleDelay even if no event comes
 	// (the window got exactly that size), so that a later resize by the
 	// user is not mistaken for the answer to it.
