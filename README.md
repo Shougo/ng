@@ -75,7 +75,10 @@ declined.
 ## Requirements
 
 - Linux (X11 or Wayland; xrdp sessions work with SDL's software renderer)
-- Neovim 0.10 or later
+- Neovim: the **latest stable release series** (currently 0.12) and
+  **nightly**. These two are tested every day in CI; older versions are
+  not supported (ng shows a warning when started with one). When Neovim
+  releases a new minor version, ng follows it.
 - SDL3, FreeType, fontconfig
 - Go 1.24 or later to build
 

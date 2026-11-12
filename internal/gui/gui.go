@@ -258,8 +258,9 @@ func (a *App) attachDone(err error) {
 	if a.shown && (a.gridCols != a.scr.Width || a.gridRows != a.scr.Height) {
 		a.nv.TryResize(a.gridCols, a.gridRows)
 	}
-	// Errors from init.lua etc. that a headless Neovim could not show.
+	// Errors from startup files that Neovim could not show in a UI.
 	a.nv.ReportStartupErrors()
+	go a.nv.WarnIfUnsupported()
 }
 
 // waitingMessage is drawn while Neovim is blocked at a prompt and has not

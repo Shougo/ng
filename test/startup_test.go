@@ -231,3 +231,16 @@ func TestUIEnterOnReattach(t *testing.T) {
 		t.Fatal("no UIEnter notification after reattaching")
 	}
 }
+
+// CI runs the latest stable release and nightly: both must be supported.
+func TestSupportedVersion(t *testing.T) {
+	h := start(t, 40, 6, false)
+	v, err := h.nv.Version()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Less(nvim.MinVersion) {
+		t.Errorf("Neovim %s in CI is older than nvim.MinVersion %s", v, nvim.MinVersion)
+	}
+	t.Logf("Neovim %s", v)
+}
