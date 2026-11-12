@@ -268,6 +268,21 @@ ng uses cgo on purpose, and not only for SDL3:
 If ng ever had to support Windows or macOS, this decision would be
 revisited; it does not, so cgo stays.
 
+## Reporting bugs
+
+Please use the issue form. GUI bugs depend on the machine, so the form
+asks for the versions, the display server and window manager, whether the
+bug also happens with `ng -- --clean` and in a terminal, and if possible a
+screenshot and a trace:
+
+```sh
+ng --trace /tmp/ng-trace.log   # reproduce the bug once, quit, attach the file
+```
+
+The trace records what Neovim sent, the keys you pressed and when each
+frame was drawn, which is usually enough to find the cause. It includes
+the text that was on the screen.
+
 ## Development
 
 ```sh

@@ -1,0 +1,141 @@
+name: Bug report
+description: Something is drawn wrong, typed wrong, slow, or ng crashes.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        GUI bugs are hard to reproduce on another machine. The version,
+        the environment and a `--trace` log usually decide whether a bug
+        can be fixed, so please fill in everything you can.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: What you see, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The keys you type or the commands you run, from starting ng.
+      placeholder: |
+        1. ng -- --clean
+        2. :set cmdheight=0
+        3. type :e <Tab>
+    validations:
+      required: true
+
+  - type: dropdown
+    id: clean
+    attributes:
+      label: Does it happen without your config?
+      description: |
+        Try `ng -- --clean`. If it only happens with your config, try to
+        find the setting or plugin that causes it.
+      options:
+        - "Yes, also with ng -- --clean"
+        - "No, only with my config (the setting or plugin is described above)"
+        - "Not tried / cannot try"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: terminal
+    attributes:
+      label: Does it happen in Neovim in a terminal?
+      description: Run nvim with the same config in a terminal emulator.
+      options:
+        - "No, only in ng"
+        - "Yes, also in a terminal"
+        - "Not tried"
+    validations:
+      required: true
+
+  - type: input
+    id: ng-version
+    attributes:
+      label: ng version
+      description: Output of `ng --version`
+      placeholder: ng v0.3.0 (go1.24.7)
+    validations:
+      required: true
+
+  - type: input
+    id: nvim-version
+    attributes:
+      label: Neovim version
+      description: First line of `nvim --version`
+      placeholder: NVIM v0.12.5
+    validations:
+      required: true
+
+  - type: dropdown
+    id: display
+    attributes:
+      label: Display server
+      options:
+        - Wayland
+        - X11
+        - X11 through xrdp
+        - XWayland (SDL_VIDEO_DRIVER=x11)
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: input
+    id: wm
+    attributes:
+      label: Window manager or desktop
+      description: Also say whether ng's window is tiled or floating.
+      placeholder: sway 1.11, tiled
+    validations:
+      required: true
+
+  - type: input
+    id: distro
+    attributes:
+      label: Distribution
+      placeholder: Arch Linux / Manjaro / Fedora 43 / ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: fonts
+    attributes:
+      label: Font settings
+      description: Your 'guifont', 'guifontwide', 'linespace' and 'ambiwidth', if the bug is about how text looks.
+      render: vim
+      placeholder: |
+        set guifont=Courier\ 10\ Pitch\ 15
+        set guifontwide=Noto\ Sans\ Mono\ CJK\ JP\ 14
+
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot
+      description: For anything visible, attach a screenshot (drag and drop it here). For comparison, a screenshot of the same thing in a terminal helps a lot.
+
+  - type: textarea
+    id: trace
+    attributes:
+      label: Trace log
+      description: |
+        Start ng with `ng --trace /tmp/ng-trace.log`, reproduce the bug once
+        (keep it short), quit, and attach the file here. It records what
+        Neovim sent, the keys you pressed and when ng drew each frame.
+        It contains the text that was on the screen: remove anything
+        private, or describe the bug without it.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: ng-features
+    attributes:
+      label: Checks
+      options:
+        - label: This is not a request for something listed under "NG features" in the README.
+          required: true

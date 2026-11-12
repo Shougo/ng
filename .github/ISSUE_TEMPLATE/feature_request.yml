@@ -1,0 +1,44 @@
+name: Feature request
+description: Suggest a change. Please read "NG features" in the README first.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ng is deliberately small: a window for Neovim, not an editor built
+        on it. Features that Neovim or a plugin can provide (in a terminal
+        too) belong there, and the features listed under "NG features" in
+        the README will not be added. What fits ng is mostly what a
+        terminal does for Neovim, done better, and what GVim does for Vim.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you cannot do, or what works worse than in a terminal or in GVim.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What ng should do.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why-ng
+    attributes:
+      label: Why in ng
+      description: Why this cannot be done by Neovim itself or by a plugin, and how it works in a terminal or in GVim.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I read "What ng promises" and "NG features" in the README, and this is not one of the NG features.
+          required: true
