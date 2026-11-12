@@ -557,16 +557,20 @@ func (a *App) keepGridFitted() {
 	a.nv.TryResize(a.gridCols, a.gridRows)
 }
 
-// settleDelay is how long ng waits for the window manager to apply a
-// window size before fitting the grid to the size the window has.
+// settleDelay is how long the window size must stay unchanged after a
+// size request before ng takes it as the window manager's answer.
 const settleDelay = 300 * time.Millisecond
 
-// settle fits the grid to the window after a resize request the window
-// manager did not answer.
+// settle runs settleDelay after a size request, or after the last size
+// change that followed it. The window's size now is the window manager's
+// answer: if it is not what ng asked for, the window manager decides
+// window sizes (tiling). Single events cannot tell: on sway a tiled
+// window first gets the requested size and then the tile, and resizing it
+// later only shrinks the drawing surface, reported as the requested size.
 func (a *App) settle() {
 	a.settleAt = time.Time{}
-	a.mark("window size settled")
 	a.updatePixelSize(true)
+	a.mark(fmt.Sprintf("window size settled at %dx%d px", a.pixW, a.pixH))
 	a.paintDirty()
 }
 
@@ -588,13 +592,10 @@ func (a *App) show() {
 	a.resizeWindowToGrid(a.scr.Width, a.scr.Height)
 	C.SDL_ShowWindow(a.win)
 	a.shown = true
-	// The size right after showing is the window manager's answer: a
-	// tiling one (sway) has already given the window its tile here, a
-	// floating window has the requested size. Traces showed that later
-	// events cannot tell this apart: on sway, resizing a tiled window
-	// shrinks the drawing surface and SDL then reports exactly the
-	// requested size.
-	a.updatePixelSize(true)
+	// The window manager answers the size request with one or more size
+	// changes (on sway: first the requested size, then the tile). The
+	// answer is the size once they have stopped; see settle.
+	a.updatePixelSize(false)
 	// Resolve the size request within settleDelay even if no event comes
 	// (the window got exactly that size), so that a later resize by the
 	// user is not mistaken for the answer to it.
@@ -747,8 +748,14 @@ func (a *App) handle(e event) bool {
 		// when the connection closes.
 		a.nv.Command("confirm qall")
 	case C.SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-		a.settleAt = time.Time{}
-		a.updatePixelSize(true)
+		a.updatePixelSize(false)
+		if a.trace != nil {
+			a.tracef(time.Now(), "window  %dx%d px", a.pixW, a.pixH)
+		}
+		if a.reqW > 0 {
+			// More size changes may follow: answer once they stop.
+			a.settleAt = time.Now().Add(settleDelay)
+		}
 		a.paintDirty()
 		return true
 	case C.SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
