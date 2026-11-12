@@ -79,12 +79,21 @@ declined.
 - SDL3, FreeType, fontconfig
 - Go 1.24 or later to build
 
-On Arch Linux / Manjaro:
+Install the libraries, then build with `go install`:
 
 ```sh
+# Arch Linux / Manjaro
 sudo pacman -S sdl3 freetype2 fontconfig go
+# Fedora 42 or later
+sudo dnf install SDL3-devel freetype-devel fontconfig-devel golang gcc
+
 go install github.com/Shougo/ng/cmd/ng@latest
 ```
+
+Both are built in CI every day. Other distributions work the same way if
+they package SDL3 (with `pkg-config` support); ng does not provide
+packages itself, but packagers are welcome (set the version with
+`-ldflags "-X main.version=..."`).
 
 ## Usage
 

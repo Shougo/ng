@@ -57,3 +57,32 @@ jobs:
         run: |
           go build -o ng ./cmd/ng
           go version -m ng | grep -E '^\s+mod\s|vcs\.revision'
+
+  # Fedora: make sure "go install" keeps working there. Building and the
+  # unit tests are enough; the integration tests run on Arch above.
+  fedora:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - name: Install packages
+        run: |
+          dnf install -y git golang gcc pkgconf-pkg-config \
+            SDL3-devel freetype-devel fontconfig-devel dejavu-sans-mono-fonts
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Trust the workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Unit tests
+        run: go test ./...
+
+      - name: Build
+        run: |
+          go build -o ng ./cmd/ng
+          ./ng --version
