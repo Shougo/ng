@@ -73,11 +73,13 @@ type App struct {
 	title      string
 	drawn      bool // painted since the last present
 	preedit    paint.Preedit
-	imeArea    [5]int    // last area sent to SDL_SetTextInputArea
-	settleAt   time.Time // when to fit the grid to the window, if set
-	reqW, reqH int       // window size last asked for, in pixels (0: none)
-	wmSized    bool      // the window manager overrides ng's window sizes
-	fitSentAt  time.Time // when keepGridFitted last asked Neovim to resize
+	textInput  bool           // SDL text input (and so the input method) is on
+	vars       map[string]any // g:ng_* variables
+	imeArea    [5]int         // last area sent to SDL_SetTextInputArea
+	settleAt   time.Time      // when to fit the grid to the window, if set
+	reqW, reqH int            // window size last asked for, in pixels (0: none)
+	wmSized    bool           // the window manager overrides ng's window sizes
+	fitSentAt  time.Time      // when keepGridFitted last asked Neovim to resize
 
 	verts []C.SDL_Vertex
 	idx   []C.int
@@ -108,8 +110,10 @@ type App struct {
 type batch struct {
 	params  []any
 	at      time.Time
-	uiEnter bool  // the UIEnter notification, kept in order with redraws
-	setSize []int // columns, lines from SetSizeNotification
+	uiEnter bool   // the UIEnter notification, kept in order with redraws
+	setSize []int  // columns, lines from SetSizeNotification
+	varName string // VarNotification
+	varVal  any
 }
 
 // tracef writes a timestamped line to the trace, if enabled.
@@ -132,7 +136,7 @@ func (a *App) post(f func()) {
 // New prepares an App for a connection that has not attached yet. Redraw
 // notifications must be passed to Enqueue.
 func New() *App {
-	return &App{glyphs: map[*font.Glyph]rect{}, focused: true}
+	return &App{glyphs: map[*font.Glyph]rect{}, focused: true, vars: map[string]any{}}
 }
 
 // Enqueue is the redraw notification handler. It runs on the RPC reader
@@ -144,6 +148,12 @@ func (a *App) Enqueue(method string, params []any) {
 		b = batch{params: params, at: time.Now()}
 	case nvim.UIEnterNotification:
 		b = batch{at: time.Now(), uiEnter: true}
+	case nvim.VarNotification:
+		if len(params) != 2 {
+			return
+		}
+		name, _ := params[0].(string)
+		b = batch{at: time.Now(), varName: name, varVal: params[1]}
 	case nvim.SetSizeNotification:
 		if len(params) != 2 {
 			return
@@ -230,7 +240,7 @@ func (a *App) Run(connect Connector, opt Options) error {
 
 	a.scr = screen.New(opt.Cols, opt.Rows)
 	a.gridCols, a.gridRows = opt.Cols, opt.Rows
-	C.SDL_StartTextInput(a.win)
+	a.setTextInput(true)
 	return a.loop()
 }
 
@@ -405,6 +415,16 @@ func (a *App) processRedraws() (drawn, closed bool, err error) {
 		return drawn, closed, a.fatal
 	}
 	for _, b := range batches {
+		if b.varName != "" {
+			a.tracef(b.at, "var     g:%s = %v", b.varName, b.varVal)
+			if b.varVal == nil {
+				delete(a.vars, b.varName)
+			} else {
+				a.vars[b.varName] = b.varVal
+			}
+			a.updateTextInput()
+			continue
+		}
 		if b.setSize != nil {
 			a.tracef(b.at, "set size %dx%d (:set columns/lines)", b.setSize[0], b.setSize[1])
 			if a.shown && a.fonts != nil {
@@ -435,6 +455,7 @@ func (a *App) processRedraws() (drawn, closed bool, err error) {
 			a.flushed = true
 			a.applyUIChanges()
 			a.keepGridFitted()
+			a.updateTextInput()
 			if a.uiEntered && !a.shown {
 				a.show()
 			}
@@ -696,6 +717,39 @@ func (a *App) present() {
 	}
 }
 
+// imeInsertOnly is g:ng_ime_insert_only, true unless set to 0 or false.
+func (a *App) imeInsertOnly() bool {
+	switch v := a.vars["ng_ime_insert_only"].(type) {
+	case int64:
+		return v != 0
+	case bool:
+		return v
+	}
+	return true
+}
+
+// updateTextInput turns SDL text input, and with it the input method, on
+// in modes where text is typed and off elsewhere (see input.IMEWanted).
+func (a *App) updateTextInput() {
+	if want := input.IMEWanted(a.scr.ModeName, a.imeInsertOnly()); want != a.textInput {
+		a.setTextInput(want)
+	}
+}
+
+func (a *App) setTextInput(on bool) {
+	if on {
+		C.SDL_StartTextInput(a.win)
+	} else {
+		C.SDL_StopTextInput(a.win)
+		a.preedit = paint.Preedit{}
+	}
+	a.textInput = on
+	a.imeArea = [5]int{} // send the input area again
+	if a.trace != nil {
+		a.tracef(time.Now(), "ime     text input %v (mode %s)", on, a.scr.ModeName)
+	}
+}
+
 // setIMEArea tells the input method where the cursor (or the text being
 // composed) is, so that its candidate window appears there. Only changes
 // are sent.
@@ -916,8 +970,16 @@ func (a *App) keyDown(e event) {
 		if s := input.SpecialKey(k, m); s != "" {
 			a.nv.Input(s)
 			a.suppressText = m&(input.ModCtrl|input.ModAlt|input.ModSuper) != 0
+		} else if k == input.KeySpace && !a.textInput {
+			a.nv.Input(" ") // no text input events while it is off
+		}
+		if k == input.KeyEscape {
+			a.leavingTextMode()
 		}
 		return
+	}
+	if e.key == '[' && m&input.ModCtrl != 0 {
+		defer a.leavingTextMode()
 	}
 	// Ctrl+Shift+V pastes the clipboard, as in terminal emulators.
 	if e.key < C.SDLK_SCANCODE_MASK && input.IsPaste(rune(e.key), m) {
@@ -931,7 +993,24 @@ func (a *App) keyDown(e event) {
 		if s := input.ChordKey(rune(e.key), m); s != "" {
 			a.nv.Input(s)
 			a.suppressText = true
+			return
 		}
+	}
+	// With text input off (Normal mode, see updateTextInput) SDL sends no
+	// text events: the key's own character is the text.
+	if !a.textInput {
+		a.nv.Input(input.DirectText(rune(e.key), m))
+	}
+}
+
+// leavingTextMode turns the input method off as soon as a key that leaves
+// Insert mode is pressed, before Neovim reports the mode change: otherwise
+// a key typed right after <Esc> could still be taken by the input method.
+// If the mode does not change (Terminal mode, an <Esc> mapping), the next
+// flush turns it on again.
+func (a *App) leavingTextMode() {
+	if a.textInput && a.imeInsertOnly() {
+		a.setTextInput(false)
 	}
 }
 

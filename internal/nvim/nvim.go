@@ -231,7 +231,8 @@ func (n *Nvim) Paste(text string) error {
 	}
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	text = strings.ReplaceAll(text, "\r", "\n")
-	name := fmt.Sprintf("ng_paste_%d", pasteSeq.Add(1))
+	// Not "ng_*": those variables are reported to ng (VarNotification).
+	name := fmt.Sprintf("ngpaste_%d", pasteSeq.Add(1))
 	if _, err := n.Call("nvim_set_var", name, text); err != nil {
 		return err
 	}
@@ -284,9 +285,21 @@ vim.api.nvim_create_autocmd('OptionSet', {
   end,
 })`
 
+// VarNotification reports a g:ng_* variable (name, value) to ng: once for
+// each such variable when ng attaches, then whenever one is set or
+// removed (value nil). ng is configured with these variables and
+// Neovim's options only.
+const VarNotification = "ng_var"
+
+const varsLua = `
+vim.cmd(('call dictwatcheradd(g:, "ng_*", {d, k, z -> rpcnotify(%d, "` + VarNotification + `", k, get(z, "new", v:null))})'):format(chan))
+for k, v in pairs(vim.fn.eval([[filter(copy(g:), 'v:key =~# "^ng_"')]])) do
+  vim.rpcnotify(chan, '` + VarNotification + `', k, v)
+end`
+
 // Bootstrap is the Lua ng runs in Neovim before attaching. Prepare passes
 // ng's channel id as its first argument.
-const Bootstrap = "local chan = ...\nvim.g.ng = 1\n" + pasteLua + "\n" + uiEnterLua + "\n" + setSizeLua
+const Bootstrap = "local chan = ...\nvim.g.ng = 1\n" + pasteLua + "\n" + uiEnterLua + "\n" + setSizeLua + "\n" + varsLua
 
 var pasteSeq atomic.Int64
 

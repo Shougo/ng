@@ -156,3 +156,32 @@ func MouseModifier(m Mod) string {
 func IsPaste(ch rune, m Mod) bool {
 	return (ch == 'v' || ch == 'V') && m&(ModCtrl|ModShift|ModAlt|ModSuper) == ModCtrl|ModShift
 }
+
+// IMEWanted reports whether the input method should be active in a Neovim
+// mode (a name from mode_info_set, as in mode_change). With insertOnly
+// (the default, g:ng_ime_insert_only) it is active only where text is
+// typed: Insert and Replace mode, the command line and Terminal mode. In
+// Normal, Visual and Operator-pending mode keys then reach Neovim
+// directly, even if the input method is switched on.
+func IMEWanted(mode string, insertOnly bool) bool {
+	if !insertOnly {
+		return true
+	}
+	switch mode {
+	case "insert", "replace", "showmatch", "terminal",
+		"cmdline_normal", "cmdline_insert", "cmdline_replace":
+		return true
+	}
+	return false
+}
+
+// DirectText returns the text a key types when the input method is off,
+// or "" if the key types nothing by itself: ch is the key's character as
+// SDL reports it (already shifted), m the modifiers. Keys with Ctrl, Alt
+// or Super are chords (ChordKey) and special keys go through SpecialKey.
+func DirectText(ch rune, m Mod) string {
+	if m&(ModCtrl|ModAlt|ModSuper) != 0 || ch < 0x20 || ch == 0x7f || ch >= 0x40000000 {
+		return ""
+	}
+	return Text(string(ch))
+}

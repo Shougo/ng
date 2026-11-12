@@ -81,3 +81,36 @@ func TestIsPaste(t *testing.T) {
 		}
 	}
 }
+
+func TestIMEWanted(t *testing.T) {
+	for _, m := range []string{"insert", "replace", "cmdline_normal", "cmdline_insert", "terminal", "showmatch"} {
+		if !IMEWanted(m, true) {
+			t.Errorf("%s: IME should be on", m)
+		}
+	}
+	for _, m := range []string{"normal", "visual", "operator", "visual_select", "more", ""} {
+		if IMEWanted(m, true) {
+			t.Errorf("%s: IME should be off", m)
+		}
+		if !IMEWanted(m, false) {
+			t.Errorf("%s: IME should be on with g:ng_ime_insert_only = 0", m)
+		}
+	}
+}
+
+func TestDirectText(t *testing.T) {
+	cases := []struct {
+		ch   rune
+		m    Mod
+		want string
+	}{
+		{'j', 0, "j"}, {'J', ModShift, "J"}, {'<', ModShift, "<lt>"}, {' ', 0, " "},
+		{'ü', 0, "ü"}, {'j', ModCtrl, ""}, {'j', ModAlt, ""}, {0x1b, 0, ""},
+		{0x40000052, 0, ""}, // an SDL scancode-based key (Up)
+	}
+	for _, c := range cases {
+		if got := DirectText(c.ch, c.m); got != c.want {
+			t.Errorf("DirectText(%q,%d) = %q, want %q", c.ch, c.m, got, c.want)
+		}
+	}
+}

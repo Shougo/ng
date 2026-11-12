@@ -4,6 +4,7 @@ package test
 
 import (
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -265,5 +266,43 @@ func TestListenAddress(t *testing.T) {
 	if _, err := nvim.Start(nvimBin(), addr, nil, nil, nil); err == nil ||
 		!strings.Contains(err.Error(), "ng --server "+addr) {
 		t.Errorf("second start on the same address: %v", err)
+	}
+}
+
+// g:ng_* variables reach ng: those set in the config, later changes and
+// removals. Paste's temporary variables must not.
+func TestVarNotifications(t *testing.T) {
+	h := start(t, 40, 6, false, "-c", "let g:ng_ime_insert_only = 0")
+	want := func(name string, val any) {
+		t.Helper()
+		deadline := time.After(5 * time.Second)
+		for {
+			select {
+			case p := <-h.vars:
+				if len(p) == 2 && p[0] == name && reflect.DeepEqual(p[1], val) {
+					return
+				}
+				if s, _ := p[0].(string); strings.HasPrefix(s, "ngpaste") || strings.HasPrefix(s, "ng_paste") {
+					t.Errorf("paste variable reported: %v", p)
+				}
+			case <-deadline:
+				t.Fatalf("no ng_var %s = %v", name, val)
+			}
+		}
+	}
+	want("ng_ime_insert_only", int64(0))
+	h.input(":let g:ng_ime_insert_only = 1<CR>")
+	want("ng_ime_insert_only", int64(1))
+	h.input(":unlet g:ng_ime_insert_only<CR>")
+	want("ng_ime_insert_only", nil)
+	h.input("i")
+	if err := h.nv.Paste("x"); err != nil {
+		t.Fatal(err)
+	}
+	h.input("<Esc>")
+	select {
+	case p := <-h.vars:
+		t.Errorf("unexpected ng_var %v", p)
+	case <-time.After(300 * time.Millisecond):
 	}
 }

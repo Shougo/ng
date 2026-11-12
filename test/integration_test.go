@@ -37,6 +37,7 @@ type harness struct {
 	flushed   chan struct{}
 	uiEntered chan struct{}
 	setSize   chan []any
+	vars      chan []any
 }
 
 func start(t *testing.T, cols, rows int, withPaint bool, args ...string) *harness {
@@ -46,7 +47,8 @@ func start(t *testing.T, cols, rows int, withPaint bool, args ...string) *harnes
 		bin = "nvim"
 	}
 	h := &harness{t: t, scr: screen.New(cols, rows), flushed: make(chan struct{}, 1),
-		uiEntered: make(chan struct{}, 1), setSize: make(chan []any, 16)}
+		uiEntered: make(chan struct{}, 1), setSize: make(chan []any, 16),
+		vars: make(chan []any, 16)}
 	if withPaint {
 		f, err := font.NewSet("Courier 10 Pitch,DejaVu Sans Mono,monospace:h11", "", 96, 0)
 		if err != nil {
@@ -79,6 +81,12 @@ func start(t *testing.T, cols, rows int, withPaint bool, args ...string) *harnes
 }
 
 func (h *harness) onNotify(method string, params []any) {
+	if method == nvim.VarNotification {
+		if h.vars != nil {
+			h.vars <- params
+		}
+		return
+	}
 	if method == nvim.SetSizeNotification {
 		if h.setSize != nil {
 			h.setSize <- params

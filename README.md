@@ -238,6 +238,10 @@ set linespace=2
 " Window size in cells, as in GVim (also at any time with :set)
 set lines=40 columns=120
 
+" Keep the input method active in every mode (default: only where text
+" is typed; see "Input methods")
+let g:ng_ime_insert_only = 0
+
 " Detect ng (g:ng is set before your config is read)
 if exists('g:ng')
   " ...
@@ -276,6 +280,22 @@ text-input protocol) through SDL:
 - While text is being composed, keys such as Enter, Escape and the arrows
   go to the input method, not to Neovim. Only the committed text reaches
   Neovim, as if typed.
+- The input method is active only in modes where text is typed: Insert
+  and Replace mode, the command line and Terminal mode. In Normal, Visual
+  and Operator-pending mode keys reach Neovim directly, so `dd` or `:w`
+  work right after `<Esc>` even if the input method is still switched on.
+  (A terminal cannot do this: it does not know Neovim's mode.) Typing a
+  non-ASCII character after `f` or `r` therefore needs the input method
+  switched off; to keep it active in every mode, set
+  `let g:ng_ime_insert_only = 0`.
+
+ng does not switch the input method itself on or off: that is specific
+to each input method. To turn Fcitx 5 off when leaving Insert mode, as
+GVim does, add to your config (it works in a terminal too):
+
+```vim
+autocmd InsertLeave * call system('fcitx5-remote -c')
+```
 
 If SDL does not pick up your input method under X11, set
 `SDL_IM_MODULE=fcitx` (or `ibus`). Input methods that run inside Neovim
