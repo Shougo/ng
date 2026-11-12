@@ -51,6 +51,12 @@ static Uint32 ng_wake_type = 0;
 bool ng_init(void) {
 	// The identifier becomes the Wayland app_id and the X11 WM_CLASS.
 	SDL_SetAppMetadata("ng", NULL, "ng");
+	// Prefer Wayland, then X11. SDL may otherwise pick XWayland on
+	// compositors without the FIFO protocols (a concern for games that
+	// present with vsync, which ng does not), and XWayland made SDL's
+	// startup about 100 ms slower in traces. A SDL_VIDEO_DRIVER
+	// environment variable still takes precedence over this hint.
+	SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "wayland,x11");
 	if (!SDL_Init(SDL_INIT_VIDEO))
 		return false;
 	ng_wake_type = SDL_RegisterEvents(1);

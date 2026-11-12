@@ -115,6 +115,11 @@ ng --server [ADDRESS]
 
 Long command lines are best kept in a shell alias.
 
+ng uses Wayland when it is available and X11 otherwise (including xrdp
+sessions). SDL's own environment variables still work, for example
+`SDL_VIDEO_DRIVER=x11 ng` to run under XWayland, or
+`SDL_RENDER_DRIVER=software ng` to avoid the GPU.
+
 ng starts `nvim --embed --listen <socket>` in its own session and
 attaches to it. Starting Neovim, loading fontconfig and creating the
 window run in parallel; the window appears once, after your config has
