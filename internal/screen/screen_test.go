@@ -234,3 +234,16 @@ func TestUnknownEventsAreIgnored(t *testing.T) {
 	s := New(1, 1)
 	apply(t, s, ev("some_future_event", []any{int64(1)}), ev("hl_group_set", []any{"Normal", int64(0)}))
 }
+
+func TestDescribe(t *testing.T) {
+	got := Describe([]any{
+		ev("grid_line", line(9, 0, cell(":"), cell("s", 1), cell("e"), cell(" ", 0, 10))),
+		ev("grid_cursor_goto", []any{int64(1), int64(9), int64(3)}),
+		ev("busy_start", []any{}),
+		ev("flush", []any{}),
+	})
+	want := `line(9,0 ":se␠×10") | cursor(9,3) | busy_start | flush`
+	if got != want {
+		t.Errorf("got  %s\nwant %s", got, want)
+	}
+}

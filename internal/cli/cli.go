@@ -19,6 +19,7 @@ type Config struct {
 	Server     string // "", an address, or AutoServer
 	Cols, Rows int
 	Version    bool
+	Trace      string // file for --trace, or ""
 	NvimArgs   []string
 }
 
@@ -37,6 +38,7 @@ func Parse(args []string, out io.Writer) (*Config, error) {
 			"without an address, attach to the one a crashed ng left behind")
 	geometry := fs.String("geometry", "80x24", "initial grid size as COLSxROWS")
 	fs.BoolVar(&c.Version, "version", false, "print the version and exit")
+	fs.StringVar(&c.Trace, "trace", "", "write received redraw events and frame timing to `FILE` (for bug reports)")
 	fs.Usage = func() {
 		fmt.Fprintf(out, "usage: ng [options] [--] [nvim arguments...]\n       ng --server [ADDRESS]\n\n")
 		fs.PrintDefaults()

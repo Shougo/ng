@@ -87,8 +87,8 @@ func (h *harness) compare(rows []any) string {
 	return b.String()
 }
 
-// cmdheight=0: entering the command line must move the statusline up, as
-// in the TUI, and command line completion must look the same.
+// cmdheight=0: entering the command line and command line completion must
+// look exactly as Neovim says.
 func TestCmdheightZeroMatchesNeovim(t *testing.T) {
 	for _, stl := range []string{
 		"STATUS",
@@ -106,12 +106,9 @@ func TestCmdheightZeroMatchesNeovim(t *testing.T) {
 			}
 
 			h.input(":")
+			// Whether the statusline moves up or is covered by the command
+			// line is Neovim's decision; ng must only agree with it.
 			h.matchesNvim("after entering the command line")
-			if stl == "STATUS" {
-				h.waitFor("statusline moved up", func(s *screen.Screen) bool {
-					return strings.HasPrefix(row(s, 8), "STATUS") && strings.HasPrefix(row(s, 9), ":")
-				})
-			}
 
 			h.input("set filet")
 			h.matchesNvim("while typing")

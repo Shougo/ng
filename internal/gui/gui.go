@@ -11,6 +11,7 @@ import "C"
 
 import (
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"slices"
@@ -35,6 +36,7 @@ const bootstrap = `vim.g.ng = 1`
 // Options configure Run.
 type Options struct {
 	Cols, Rows int
+	Trace      io.Writer // receives a log of redraws and frames, or nil
 }
 
 type rect struct{ x, y, w, h int }
@@ -73,11 +75,29 @@ type App struct {
 	mouseRow     int
 	mouseCol     int
 
+	trace      io.Writer
+	traceStart time.Time
+
 	mu      sync.Mutex
-	batches [][]any
+	batches []batch
 	ctl     []func() // work posted to the main thread
 	closed  bool
 	fatal   error
+}
+
+// batch is one redraw notification and when it arrived.
+type batch struct {
+	params []any
+	at     time.Time
+}
+
+// tracef writes a timestamped line to the trace, if enabled.
+func (a *App) tracef(at time.Time, format string, args ...any) {
+	if a.trace == nil {
+		return
+	}
+	ms := float64(at.Sub(a.traceStart).Microseconds()) / 1000
+	fmt.Fprintf(a.trace, "%10.3f "+format+"\n", append([]any{ms}, args...)...)
 }
 
 // post runs f on the main thread. Safe to call from any goroutine.
@@ -101,7 +121,7 @@ func (a *App) Enqueue(method string, params []any) {
 		return
 	}
 	a.mu.Lock()
-	a.batches = append(a.batches, params)
+	a.batches = append(a.batches, batch{params, time.Now()})
 	a.mu.Unlock()
 	wake()
 }
@@ -117,6 +137,7 @@ func (a *App) markClosed() {
 // connection. It must be called from the main goroutine.
 func (a *App) Run(nv *nvim.Nvim, opt Options) error {
 	a.nv = nv
+	a.trace, a.traceStart = opt.Trace, time.Now()
 	if !C.ng_init() {
 		return sdlError("SDL_Init")
 	}
@@ -275,7 +296,10 @@ func (a *App) processRedraws() (drawn, closed bool, err error) {
 		return drawn, closed, a.fatal
 	}
 	for _, b := range batches {
-		flush, err := a.scr.HandleRedraw(b)
+		if a.trace != nil {
+			a.tracef(b.at, "redraw  %s", screen.Describe(b.params))
+		}
+		flush, err := a.scr.HandleRedraw(b.params)
 		if err != nil {
 			return drawn, closed, err
 		}
@@ -423,6 +447,11 @@ func (a *App) present() {
 	paint.Cursor(a, a.scr, a.fonts, a.focused)
 	a.flushGlyphs()
 	C.SDL_RenderPresent(a.ren)
+	if a.trace != nil {
+		m := a.scr.CurrentMode()
+		a.tracef(time.Now(), "present cursor=(%d,%d) mode=%s busy=%v",
+			a.scr.CursorRow, a.scr.CursorCol, m.Name, a.scr.Busy)
+	}
 }
 
 // FillRect implements paint.Painter.
@@ -510,6 +539,9 @@ func (a *App) handle(e event) bool {
 		}
 		return true
 	case C.SDL_EVENT_KEY_DOWN:
+		if a.trace != nil {
+			a.tracef(time.Now(), "key     0x%x mod=0x%x", e.key, e.mod)
+		}
 		a.keyDown(e)
 	case C.SDL_EVENT_TEXT_INPUT:
 		if a.suppressText {

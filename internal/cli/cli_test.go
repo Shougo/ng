@@ -20,6 +20,8 @@ func TestParse(t *testing.T) {
 		{[]string{"--server"}, Config{Nvim: "nvim", Server: AutoServer, Cols: 80, Rows: 24, NvimArgs: []string{}}},
 		{[]string{"--server", "--geometry", "100x30"},
 			Config{Nvim: "nvim", Server: AutoServer, Cols: 100, Rows: 30, NvimArgs: []string{}}},
+		{[]string{"--trace", "/tmp/t.log", "x.txt"},
+			Config{Nvim: "nvim", Trace: "/tmp/t.log", Cols: 80, Rows: 24, NvimArgs: []string{"x.txt"}}},
 		{[]string{"-server=localhost:6666"},
 			Config{Nvim: "nvim", Server: "localhost:6666", Cols: 80, Rows: 24, NvimArgs: []string{}}},
 	}

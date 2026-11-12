@@ -43,6 +43,17 @@ func run() int {
 		cfg.Server = addr
 	}
 
+	opts := gui.Options{Cols: cfg.Cols, Rows: cfg.Rows}
+	if cfg.Trace != "" {
+		f, err := os.Create(cfg.Trace)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "ng:", err)
+			return 1
+		}
+		defer f.Close()
+		opts.Trace = f
+	}
+
 	app := gui.New()
 	var nv *nvim.Nvim
 	if cfg.Server != "" {
@@ -63,7 +74,7 @@ func run() int {
 			panic(r)
 		}
 	}()
-	if err := app.Run(nv, gui.Options{Cols: cfg.Cols, Rows: cfg.Rows}); err != nil {
+	if err := app.Run(nv, opts); err != nil {
 		fmt.Fprintf(os.Stderr, "ng: %v\n", err)
 		select {
 		case <-nv.Done():
