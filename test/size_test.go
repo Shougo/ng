@@ -56,3 +56,16 @@ func TestConfigSizeIsInGridAtUIEnter(t *testing.T) {
 		return s.Width == 55 && s.Height == 13
 	})
 }
+
+// In a tiled window ng answers ":set columns=…" by resizing the grid back
+// to the window with nvim_ui_try_resize. Neovim must accept that even
+// though the UI's size has not changed since it was last reported.
+func TestTryResizeRestoresAfterSet(t *testing.T) {
+	h := start(t, 40, 10, false)
+	h.input(":set columns=50 lines=12<CR>")
+	h.waitFor("grid set by :set", func(s *screen.Screen) bool { return s.Width == 50 && s.Height == 12 })
+	h.nv.TryResize(40, 10)
+	h.waitFor("grid back to the window size", func(s *screen.Screen) bool {
+		return s.Width == 40 && s.Height == 10
+	})
+}

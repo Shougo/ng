@@ -74,6 +74,7 @@ type App struct {
 	settleAt   time.Time // when to fit the grid to the window, if set
 	reqW, reqH int       // window size last asked for, in pixels (0: none)
 	wmSized    bool      // the window manager overrides ng's window sizes
+	fitSentAt  time.Time // when keepGridFitted last asked Neovim to resize
 
 	verts []C.SDL_Vertex
 	idx   []C.int
@@ -430,6 +431,7 @@ func (a *App) processRedraws() (drawn, closed bool, err error) {
 		if flush {
 			a.flushed = true
 			a.applyUIChanges()
+			a.keepGridFitted()
 			if a.uiEntered && !a.shown {
 				a.show()
 			}
@@ -532,6 +534,27 @@ func (a *App) resizeWindowToGrid(cols, rows int) {
 	if a.shown {
 		a.settleAt = time.Now().Add(settleDelay)
 	}
+}
+
+// keepGridFitted puts the grid back to the window's size when the window
+// manager decides the window size and the grid changed (":set columns"
+// in a tiled window). The change arrives after Neovim's OptionSet
+// notification, so it is checked at every flush rather than when the
+// notification comes.
+func (a *App) keepGridFitted() {
+	if !a.shown || !a.wmSized || !a.attached {
+		return
+	}
+	if a.scr.Width == a.gridCols && a.scr.Height == a.gridRows {
+		a.fitSentAt = time.Time{}
+		return
+	}
+	// Do not repeat the request while Neovim is still applying it.
+	if !a.fitSentAt.IsZero() && time.Since(a.fitSentAt) < 200*time.Millisecond {
+		return
+	}
+	a.fitSentAt = time.Now()
+	a.nv.TryResize(a.gridCols, a.gridRows)
 }
 
 // settleDelay is how long ng waits for the window manager to apply a
