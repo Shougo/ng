@@ -129,3 +129,7 @@ full repaint.
 | `internal/paint` | what to draw; image painter for tests |
 | `internal/input` | key and mouse notation |
 | `internal/gui` | SDL3 window, renderer and events |
+
+## License
+
+MIT, see [LICENSE](LICENSE).
