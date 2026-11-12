@@ -15,9 +15,9 @@ void ng_flatten(const SDL_Event *e, ng_event *o) {
 		o->mod = e->key.mod;
 		o->repeat = e->key.repeat;
 		break;
-	case SDL_EVENT_TEXT_INPUT:
-		if (e->text.text)
-			SDL_strlcpy(o->text, e->text.text, sizeof(o->text));
+	case SDL_EVENT_TEXT_EDITING:
+		o->edit_start = e->edit.start;
+		o->edit_length = e->edit.length;
 		break;
 	case SDL_EVENT_MOUSE_BUTTON_DOWN:
 	case SDL_EVENT_MOUSE_BUTTON_UP:
@@ -46,6 +46,25 @@ char *ng_drop_data(const SDL_Event *e) {
 	return e->drop.data ? SDL_strdup(e->drop.data) : NULL;
 }
 
+// Text of a text input (committed) or text editing (preedit) event, of
+// any length (an input method may commit a whole sentence).
+char *ng_event_text(const SDL_Event *e) {
+	const char *t = NULL;
+	if (e->type == SDL_EVENT_TEXT_INPUT)
+		t = e->text.text;
+	else if (e->type == SDL_EVENT_TEXT_EDITING)
+		t = e->edit.text;
+	return t ? SDL_strdup(t) : NULL;
+}
+
+// Tells the input method where the text being composed is, in window
+// coordinates, so that it puts its candidate window there. cursor is the
+// offset of the text cursor from x.
+bool ng_set_text_input_area(SDL_Window *w, int x, int y, int width, int height, int cursor) {
+	SDL_Rect r = { x, y, width, height };
+	return SDL_SetTextInputArea(w, &r, cursor);
+}
+
 static Uint32 ng_wake_type = 0;
 
 bool ng_init(void) {
@@ -57,6 +76,9 @@ bool ng_init(void) {
 	// startup about 100 ms slower in traces. A SDL_VIDEO_DRIVER
 	// environment variable still takes precedence over this hint.
 	SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "wayland,x11");
+	// ng draws the preedit text itself, in the grid with its own CJK
+	// rendering; the input method still draws its candidate window.
+	SDL_SetHint(SDL_HINT_IME_IMPLEMENTED_UI, "composition");
 	if (!SDL_Init(SDL_INIT_VIDEO))
 		return false;
 	ng_wake_type = SDL_RegisterEvents(1);

@@ -33,21 +33,30 @@ type event struct {
 	button int
 	state  uint32
 	drop   string
+	// SDL_EVENT_TEXT_EDITING
+	editStart, editLength int
 }
 
 func flatten(e *C.SDL_Event) event {
 	var o C.ng_event
 	C.ng_flatten(e, &o)
 	ev := event{
-		typ:    uint32(o._type),
-		key:    uint32(o.key),
-		mod:    uint16(o.mod),
-		repeat: o.repeat != 0,
-		text:   C.GoString(&o.text[0]),
-		x:      float32(o.x),
-		y:      float32(o.y),
-		button: int(o.button),
-		state:  uint32(o.state),
+		typ:        uint32(o._type),
+		key:        uint32(o.key),
+		mod:        uint16(o.mod),
+		repeat:     o.repeat != 0,
+		editStart:  int(o.edit_start),
+		editLength: int(o.edit_length),
+		x:          float32(o.x),
+		y:          float32(o.y),
+		button:     int(o.button),
+		state:      uint32(o.state),
+	}
+	if ev.typ == C.SDL_EVENT_TEXT_INPUT || ev.typ == C.SDL_EVENT_TEXT_EDITING {
+		if p := C.ng_event_text(e); p != nil {
+			ev.text = C.GoString(p)
+			C.SDL_free(unsafe.Pointer(p))
+		}
 	}
 	if ev.typ == C.SDL_EVENT_DROP_FILE || ev.typ == C.SDL_EVENT_DROP_TEXT {
 		if p := C.ng_drop_data(e); p != nil {

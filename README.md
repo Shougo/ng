@@ -98,10 +98,6 @@ images through `vim.ui.img`.
 
 ## Planned
 
-- **Input methods (IME).** Everything a terminal offers with Fcitx 5 or
-  IBus, done properly: the preedit text drawn at the cursor with ng's
-  own CJK rendering, and the candidate window placed at the cursor. On
-  Linux, GUIs that handle input methods well are rare; ng should be one.
 - Images through Neovim's official `vim.ui.img` API (not a GUI-specific
   API): plugins that use it will show images in ng and in kitty alike.
 
@@ -260,6 +256,25 @@ directly; no conversion to OpenType is needed. The size is converted to
 pixels like GTK does (points at 96 dpi times the display scale that SDL
 reports), so the same setting should give the same size as in GVim. If it
 does not, please report it with your `Xft.dpi` and scaling settings.
+
+### Input methods
+
+ng works with system input methods (Fcitx 5, IBus, and the Wayland
+text-input protocol) through SDL:
+
+- The text being composed (preedit) is drawn by ng at the cursor, with
+  the same fonts and CJK cell fitting as the rest of the screen,
+  underlined, with the segment being converted reversed. If it would run
+  past the right edge it is shifted left.
+- The candidate window is placed at the cursor (or at the text being
+  composed).
+- While text is being composed, keys such as Enter, Escape and the arrows
+  go to the input method, not to Neovim. Only the committed text reaches
+  Neovim, as if typed.
+
+If SDL does not pick up your input method under X11, set
+`SDL_IM_MODULE=fcitx` (or `ibus`). Input methods that run inside Neovim
+(such as skkeleton) need nothing from ng.
 
 ### Tiling window managers
 

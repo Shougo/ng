@@ -9,7 +9,8 @@ typedef struct {
 	SDL_Keycode key;
 	SDL_Keymod mod;
 	int repeat;
-	char text[64];
+	int edit_start;  // SDL_EVENT_TEXT_EDITING: cursor, in characters
+	int edit_length; // SDL_EVENT_TEXT_EDITING: selected characters
 	float x, y;
 	int button;
 	Uint32 state;
@@ -17,6 +18,8 @@ typedef struct {
 
 void ng_flatten(const SDL_Event *e, ng_event *o);
 char *ng_drop_data(const SDL_Event *e);
+char *ng_event_text(const SDL_Event *e);
+bool ng_set_text_input_area(SDL_Window *w, int x, int y, int width, int height, int cursor);
 bool ng_init(void);
 void ng_wake(void);
 Uint32 ng_get_wake_type(void);

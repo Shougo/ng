@@ -17,6 +17,7 @@ import (
 	"slices"
 	"sync"
 	"time"
+	"unicode/utf8"
 	"unsafe"
 
 	"github.com/Shougo/ng/internal/atlas"
@@ -70,7 +71,9 @@ type App struct {
 	pixW, pixH int
 	focused    bool
 	title      string
-	drawn      bool      // painted since the last present
+	drawn      bool // painted since the last present
+	preedit    paint.Preedit
+	imeArea    [5]int    // last area sent to SDL_SetTextInputArea
 	settleAt   time.Time // when to fit the grid to the window, if set
 	reqW, reqH int       // window size last asked for, in pixels (0: none)
 	wmSized    bool      // the window manager overrides ng's window sizes
@@ -678,13 +681,33 @@ func (a *App) present() {
 	}
 	C.ng_blit(a.ren, a.screenTex, C.int(a.pixW), C.int(a.pixH))
 	paint.Cursor(a, a.scr, a.fonts, a.focused)
+	area, cursorX := paint.CursorRect(a.scr, a.fonts), 0
+	if a.preedit.Text != "" {
+		area, cursorX = paint.DrawPreedit(a, a.scr, a.fonts, a.preedit)
+		cursorX -= area.X
+	}
 	a.flushGlyphs()
+	a.setIMEArea(area, cursorX)
 	C.SDL_RenderPresent(a.ren)
 	if a.trace != nil {
 		m := a.scr.CurrentMode()
 		a.tracef(time.Now(), "present cursor=(%d,%d) mode=%s busy=%v",
 			a.scr.CursorRow, a.scr.CursorCol, m.Name, a.scr.Busy)
 	}
+}
+
+// setIMEArea tells the input method where the cursor (or the text being
+// composed) is, so that its candidate window appears there. Only changes
+// are sent.
+func (a *App) setIMEArea(r paint.Rect, cursorX int) {
+	d := float64(C.ng_pixel_density(a.win))
+	pt := func(v int) int { return int(float64(v) / d) }
+	v := [5]int{pt(r.X), pt(r.Y), max(1, pt(r.W)), max(1, pt(r.H)), pt(cursorX)}
+	if v == a.imeArea {
+		return
+	}
+	a.imeArea = v
+	C.ng_set_text_input_area(a.win, C.int(v[0]), C.int(v[1]), C.int(v[2]), C.int(v[3]), C.int(v[4]))
 }
 
 // FillRect implements paint.Painter.
@@ -777,6 +800,9 @@ func (a *App) handle(e event) bool {
 		return true
 	case C.SDL_EVENT_WINDOW_FOCUS_GAINED, C.SDL_EVENT_WINDOW_FOCUS_LOST:
 		a.focused = e.typ == C.SDL_EVENT_WINDOW_FOCUS_GAINED
+		if !a.focused {
+			a.preedit = paint.Preedit{} // the input method resets on focus loss
+		}
 		if a.attached {
 			a.nv.SetFocus(a.focused)
 		}
@@ -786,12 +812,31 @@ func (a *App) handle(e event) bool {
 			a.tracef(time.Now(), "key     0x%x mod=0x%x", e.key, e.mod)
 		}
 		a.keyDown(e)
+	case C.SDL_EVENT_TEXT_EDITING:
+		// The input method's preedit text: drawn by ng at the cursor, not
+		// sent to Neovim until committed (SDL_EVENT_TEXT_INPUT).
+		cursor := e.editStart
+		if cursor < 0 {
+			cursor = utf8.RuneCountInString(e.text)
+		}
+		a.preedit = paint.Preedit{Text: e.text, Cursor: cursor, SelLen: e.editLength}
+		if a.trace != nil {
+			a.tracef(time.Now(), "preedit %q cursor=%d sel=%d", e.text, e.editStart, e.editLength)
+		}
+		return true
 	case C.SDL_EVENT_TEXT_INPUT:
-		if a.suppressText {
+		wasComposing := a.preedit.Text != ""
+		a.preedit = paint.Preedit{}
+		if a.suppressText && !wasComposing {
 			a.suppressText = false
 			return false
 		}
+		a.suppressText = false
+		if a.trace != nil {
+			a.tracef(time.Now(), "commit  %q", e.text)
+		}
 		a.nv.Input(input.Text(e.text))
+		return wasComposing
 	case C.SDL_EVENT_MOUSE_BUTTON_DOWN, C.SDL_EVENT_MOUSE_BUTTON_UP,
 		C.SDL_EVENT_MOUSE_MOTION, C.SDL_EVENT_MOUSE_WHEEL:
 		a.mouse(e)
@@ -860,6 +905,11 @@ func specialKey(k uint32) input.Key {
 }
 
 func (a *App) keyDown(e event) {
+	if a.preedit.Text != "" {
+		// The input method is composing: Enter, Escape, arrows and so on
+		// belong to it, not to Neovim.
+		return
+	}
 	a.suppressText = false
 	m := mods(e.mod)
 	if k := specialKey(e.key); k != input.KeyNone {
