@@ -297,9 +297,12 @@ GVim does, add to your config (it works in a terminal too):
 autocmd InsertLeave * call system('fcitx5-remote -c')
 ```
 
-If SDL does not pick up your input method under X11, set
-`SDL_IM_MODULE=fcitx` (or `ibus`). Input methods that run inside Neovim
-(such as skkeleton) need nothing from ng.
+Under X11 (including XWayland), input goes through XIM: typing and
+converting work, but the text being composed is shown in the input
+method's own window rather than at the cursor, because SDL does not
+pass it to ng there. Under Wayland it is drawn at the cursor as
+described above. Input methods that run inside Neovim (such as
+skkeleton) need nothing from ng.
 
 ### Tiling window managers
 
