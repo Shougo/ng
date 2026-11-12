@@ -108,7 +108,7 @@ ng --server [ADDRESS]
 | Option | Description |
 | --- | --- |
 | `--nvim PATH` | Neovim executable to start (default: `nvim`) |
-| `--geometry COLSxROWS` | Initial grid size (default: `80x24`) |
+| `--geometry COLSxROWS` | Grid size until the config sets 'lines'/'columns' (default: `80x24`) |
 | `--trace FILE` | Log redraws, keys and frames with timestamps (attach it to bug reports) |
 | `--version` | Print the version |
 | `--server [ADDRESS]` | Attach to a running Neovim server (socket path or `host:port`). Without an address, attach to the Neovim a crashed ng left behind |
@@ -158,6 +158,9 @@ set guifont=Courier\ 10\ Pitch,Noto\ Sans\ Mono\ CJK\ JP:h11
 set guifontwide=Noto\ Sans\ Mono\ CJK\ JP:h10
 set linespace=2
 
+" Window size in cells, as in GVim (also at any time with :set)
+set lines=40 columns=120
+
 " Detect ng (g:ng is set before your config is read)
 if exists('g:ng')
   " ...
@@ -171,6 +174,11 @@ line serves both GVim and ng:
 set guifont=Courier\ 10\ Pitch\ 16
 set guifontwide=Noto\ Sans\ Mono\ CJK\ JP\ 14
 ```
+
+'lines' and 'columns' size the window, in your config and with `:set`
+later, and the window keeps them when 'guifont' changes. A tiling window
+manager decides window sizes itself; then the grid follows the window
+instead. `--geometry` only sets the size used before your config runs.
 
 ng reads fonts with FreeType, so the Type 1 "Courier 10 Pitch" works
 directly; no conversion to OpenType is needed. The size is converted to

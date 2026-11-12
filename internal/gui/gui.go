@@ -23,6 +23,7 @@ import (
 	"github.com/Shougo/ng/internal/font"
 	"github.com/Shougo/ng/internal/frame"
 	"github.com/Shougo/ng/internal/input"
+	"github.com/Shougo/ng/internal/msgpack"
 	"github.com/Shougo/ng/internal/nvim"
 	"github.com/Shougo/ng/internal/paint"
 	"github.com/Shougo/ng/internal/rpc"
@@ -69,7 +70,8 @@ type App struct {
 	pixW, pixH int
 	focused    bool
 	title      string
-	drawn      bool // painted since the last present
+	drawn      bool      // painted since the last present
+	settleAt   time.Time // when to fit the grid to the window, if set
 
 	verts []C.SDL_Vertex
 	idx   []C.int
@@ -100,7 +102,8 @@ type App struct {
 type batch struct {
 	params  []any
 	at      time.Time
-	uiEnter bool // the UIEnter notification, kept in order with redraws
+	uiEnter bool  // the UIEnter notification, kept in order with redraws
+	setSize []int // columns, lines from SetSizeNotification
 }
 
 // tracef writes a timestamped line to the trace, if enabled.
@@ -135,6 +138,13 @@ func (a *App) Enqueue(method string, params []any) {
 		b = batch{params: params, at: time.Now()}
 	case nvim.UIEnterNotification:
 		b = batch{at: time.Now(), uiEnter: true}
+	case nvim.SetSizeNotification:
+		if len(params) != 2 {
+			return
+		}
+		c, _ := msgpack.ToInt(params[0])
+		r, _ := msgpack.ToInt(params[1])
+		b = batch{at: time.Now(), setSize: []int{int(c), int(r)}}
 	default:
 		return
 	}
@@ -314,12 +324,22 @@ func (a *App) loop() error {
 				a.present()
 			}
 		}
+		if !a.settleAt.IsZero() && !time.Now().Before(a.settleAt) {
+			a.settle()
+			a.present()
+		}
 		got := true
-		if !a.shown {
+		switch {
+		case !a.shown:
 			// Wake up regularly while hidden, for the timeout above.
 			got = C.ng_wait_timeout(&ev, 50) != 0
-		} else if C.ng_wait(&ev) == 0 {
-			return sdlError("SDL_WaitEvent")
+		case !a.settleAt.IsZero():
+			ms := max(1, int(time.Until(a.settleAt)/time.Millisecond)+1)
+			got = C.ng_wait_timeout(&ev, C.int(ms)) != 0
+		default:
+			if C.ng_wait(&ev) == 0 {
+				return sdlError("SDL_WaitEvent")
+			}
 		}
 		evp := &ev
 		if !got {
@@ -379,6 +399,14 @@ func (a *App) processRedraws() (drawn, closed bool, err error) {
 		return drawn, closed, a.fatal
 	}
 	for _, b := range batches {
+		if b.setSize != nil {
+			a.tracef(b.at, "set size %dx%d (:set columns/lines)", b.setSize[0], b.setSize[1])
+			if a.shown && a.fonts != nil {
+				// Like GVim: the window follows 'columns' and 'lines'.
+				a.resizeWindowToGrid(b.setSize[0], b.setSize[1])
+			}
+			continue
+		}
 		if b.uiEnter {
 			a.tracef(b.at, "startup UIEnter (config has run)")
 			a.uiEntered = true
@@ -484,10 +512,28 @@ func (a *App) resizeWindowToGrid(cols, rows int) {
 	w := int(math.Ceil(float64(cols*a.fonts.CellW) / d))
 	h := int(math.Ceil(float64(rows*a.fonts.CellH) / d))
 	// No SDL_SyncWindow: a tiling window manager may never apply the size,
-	// and waiting for it would stall. The real size arrives as
-	// SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED.
+	// and waiting for it would stall. The new size arrives as
+	// SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED. Until then the grid is left
+	// alone: reading the window size now could give the old size and make
+	// ng shrink the grid back. If no event comes (the window manager kept
+	// the size), the grid is fitted to the real window after settleDelay.
 	C.SDL_SetWindowSize(a.win, C.int(w), C.int(h))
+	if a.shown {
+		a.settleAt = time.Now().Add(settleDelay)
+	}
+}
+
+// settleDelay is how long ng waits for the window manager to apply a
+// window size before fitting the grid to the size the window has.
+const settleDelay = 300 * time.Millisecond
+
+// settle fits the grid to the window after a resize request the window
+// manager did not answer.
+func (a *App) settle() {
+	a.settleAt = time.Time{}
+	a.mark("window size settled")
 	a.updatePixelSize()
+	a.paintDirty()
 }
 
 // show makes the window visible the first time: with the fonts from the
@@ -508,6 +554,8 @@ func (a *App) show() {
 	a.resizeWindowToGrid(a.scr.Width, a.scr.Height)
 	C.SDL_ShowWindow(a.win)
 	a.shown = true
+	// A hidden window takes the requested size at once, so this reads the
+	// size the window manager gave on showing (a tiling one decides).
 	a.updatePixelSize()
 	a.mark("window shown")
 }
@@ -647,6 +695,7 @@ func (a *App) handle(e event) bool {
 		// when the connection closes.
 		a.nv.Command("confirm qall")
 	case C.SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+		a.settleAt = time.Time{}
 		a.updatePixelSize()
 		a.paintDirty()
 		return true

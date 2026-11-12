@@ -230,9 +230,25 @@ vim.api.nvim_create_autocmd('UIEnter', {
   callback = function() vim.rpcnotify(chan, '` + UIEnterNotification + `') end,
 })`
 
+// SetSizeNotification is sent to ng when the user sets 'lines' or
+// 'columns' (":set lines=40 columns=120"), with the new columns and lines.
+// ng resizes its window to fit, like GVim. Only explicit :set triggers
+// it; resizes that come from ng itself (nvim_ui_try_resize) do not, so ng
+// and Neovim never fight over the size. At startup the window is sized
+// from the grid instead (OptionSet does not fire while starting).
+const SetSizeNotification = "ng_set_size"
+
+const setSizeLua = `
+vim.api.nvim_create_autocmd('OptionSet', {
+  pattern = { 'lines', 'columns' },
+  callback = function()
+    vim.rpcnotify(chan, '` + SetSizeNotification + `', vim.o.columns, vim.o.lines)
+  end,
+})`
+
 // Bootstrap is the Lua ng runs in Neovim before attaching. Prepare passes
 // ng's channel id as its first argument.
-const Bootstrap = "local chan = ...\nvim.g.ng = 1\n" + pasteLua + "\n" + uiEnterLua
+const Bootstrap = "local chan = ...\nvim.g.ng = 1\n" + pasteLua + "\n" + uiEnterLua + "\n" + setSizeLua
 
 var pasteSeq atomic.Int64
 
