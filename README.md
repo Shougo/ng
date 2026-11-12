@@ -176,20 +176,41 @@ set guifontwide=Noto\ Sans\ Mono\ CJK\ JP\ 14
 ```
 
 'lines' and 'columns' size the window, in your config and with `:set`
-later, and the window keeps them when 'guifont' changes. A tiling window
-manager (sway, i3, ...) decides window sizes itself: when ng sees that
-the window did not get the size it asked for, it stops resizing the
-window and fits 'lines' and 'columns' to the window instead, as GVim
-ends up doing. (On sway, resizing a tiled window would only shrink the
-drawing surface inside the tile.) This lasts until ng restarts, also if
-the window is made floating later. `--geometry` only sets the size used
-before your config runs.
+later, and the window keeps them when 'guifont' changes. `--geometry`
+only sets the size used before your config runs.
 
 ng reads fonts with FreeType, so the Type 1 "Courier 10 Pitch" works
 directly; no conversion to OpenType is needed. The size is converted to
 pixels like GTK does (points at 96 dpi times the display scale that SDL
 reports), so the same setting should give the same size as in GVim. If it
 does not, please report it with your `Xft.dpi` and scaling settings.
+
+### Tiling window managers
+
+A tiling window manager (sway, i3, ...) decides the size of tiled windows
+itself. When ng starts, it checks whether its window got the size it asked
+for. If not, ng leaves the window size to the window manager from then on:
+'lines', 'columns' and 'guifont' changes fit the grid to the window
+instead of resizing it, as GVim ends up doing. (On sway, resizing a tiled
+window would only shrink the drawing surface inside the tile, shown as a
+black area.)
+
+This check is made once, when the window first appears, and lasts until
+ng restarts. A window that is made floating later still keeps its size
+when 'lines' or 'columns' change; resize it with the mouse instead. To
+have `:set lines=… columns=…` resize the window, start ng floating:
+
+```
+# sway (~/.config/sway/config)
+for_window [app_id="ng"] floating enable
+
+# i3
+for_window [class="ng"] floating enable
+```
+
+The check cannot follow later changes because SDL, which ng uses for its
+window, keeps whether a window is tiled to itself: there is no public API
+to ask for it.
 
 Every glyph is fitted into the cells Neovim gives it. If a character is
 drawn too small, give it the width you want with `setcellwidths()` or
