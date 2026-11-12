@@ -1,14 +1,15 @@
 // Command ng is a minimal Neovim GUI for Linux.
 //
 //	ng [--nvim PATH] [--geometry COLSxROWS] [--] [nvim arguments...]
-//	ng --server ADDRESS
+//	ng --server [ADDRESS]
 package main
 
 import (
-	"flag"
+	"errors"
 	"fmt"
 	"os"
 
+	"github.com/Shougo/ng/internal/cli"
 	"github.com/Shougo/ng/internal/gui"
 	"github.com/Shougo/ng/internal/nvim"
 )
@@ -20,41 +21,34 @@ func main() {
 }
 
 func run() int {
-	fs := flag.NewFlagSet("ng", flag.ContinueOnError)
-	nvimPath := fs.String("nvim", "nvim", "Neovim executable to start")
-	server := fs.String("server", "", "attach to a running Neovim server (socket path or host:port) instead of starting one")
-	geometry := fs.String("geometry", "80x24", "initial grid size as COLSxROWS")
-	showVersion := fs.Bool("version", false, "print the version and exit")
-	fs.Usage = func() {
-		fmt.Fprintf(fs.Output(), "usage: ng [options] [--] [nvim arguments...]\n\n")
-		fs.PrintDefaults()
+	cfg, err := cli.Parse(os.Args[1:], os.Stderr)
+	if errors.Is(err, cli.ErrHelp) {
+		return 0
 	}
-	if err := fs.Parse(os.Args[1:]); err != nil {
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ng:", err)
 		return 2
 	}
-	if *showVersion {
+	if cfg.Version {
 		fmt.Println("ng", version)
 		return 0
 	}
-	var cols, rows int
-	if _, err := fmt.Sscanf(*geometry, "%dx%d", &cols, &rows); err != nil || cols < 1 || rows < 1 {
-		fmt.Fprintf(os.Stderr, "ng: invalid --geometry %q (want COLSxROWS)\n", *geometry)
-		return 2
+
+	if cfg.Server == cli.AutoServer {
+		addr, err := pickServer()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "ng:", err)
+			return 1
+		}
+		cfg.Server = addr
 	}
 
 	app := gui.New()
-	var (
-		nv  *nvim.Nvim
-		err error
-	)
-	if *server != "" {
-		if fs.NArg() > 0 {
-			fmt.Fprintln(os.Stderr, "ng: nvim arguments cannot be used with --server")
-			return 2
-		}
-		nv, err = nvim.Connect(*server, app.Enqueue, nil)
+	var nv *nvim.Nvim
+	if cfg.Server != "" {
+		nv, err = nvim.Connect(cfg.Server, app.Enqueue, nil)
 	} else {
-		nv, err = nvim.Start(*nvimPath, fs.Args(), app.Enqueue, nil)
+		nv, err = nvim.Start(cfg.Nvim, cfg.NvimArgs, app.Enqueue, nil)
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ng:", err)
@@ -65,11 +59,11 @@ func run() int {
 		// Neovim runs in its own process: if the GUI fails, nothing is
 		// lost, and the user can attach again.
 		if r := recover(); r != nil {
-			fmt.Fprintf(os.Stderr, "ng: crashed: %v\nNeovim is still running; attach again with:\n  ng --server %s\n", r, nv.Addr)
+			fmt.Fprintf(os.Stderr, "ng: crashed: %v\nNeovim is still running; attach again with:\n  ng --server\n", r)
 			panic(r)
 		}
 	}()
-	if err := app.Run(nv, gui.Options{Cols: cols, Rows: rows}); err != nil {
+	if err := app.Run(nv, gui.Options{Cols: cfg.Cols, Rows: cfg.Rows}); err != nil {
 		fmt.Fprintf(os.Stderr, "ng: %v\n", err)
 		select {
 		case <-nv.Done():
@@ -79,4 +73,33 @@ func run() int {
 		return 1
 	}
 	return 0
+}
+
+// pickServer chooses the server for a bare "ng --server": the one no UI
+// is attached to. With several candidates it lists them instead of
+// guessing.
+func pickServer() (string, error) {
+	all := nvim.FindServers()
+	orphans := nvim.Orphans(all)
+	switch {
+	case len(orphans) == 1:
+		return orphans[0].Addr, nil
+	case len(orphans) == 0 && len(all) == 0:
+		return "", errors.New("no running Neovim started by ng was found")
+	}
+	list := orphans
+	msg := "several Neovim servers have no window; choose one:"
+	if len(orphans) == 0 {
+		list = all
+		msg = "every Neovim started by ng already has a window; to attach anyway, choose one:"
+	}
+	fmt.Fprintln(os.Stderr, "ng:", msg)
+	for _, s := range list {
+		file := s.File
+		if file == "" {
+			file = "[No Name]"
+		}
+		fmt.Fprintf(os.Stderr, "  ng --server %s    # %s, %d modified buffer(s)\n", s.Addr, file, s.Modified)
+	}
+	return "", errors.New("no server selected")
 }

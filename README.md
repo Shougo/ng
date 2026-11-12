@@ -20,7 +20,7 @@ not implemented.
   fontconfig settings. Type 1 and bitmap fonts work too (Pango-based GUIs
   can no longer use them).
 - **Nothing is lost.** Neovim runs as a separate process. If ng crashes,
-  Neovim keeps running and `ng --server <address>` attaches to it again.
+  Neovim keeps running and `ng --server` attaches to it again.
 - **Maintainable by one person.** Linux only, small, and tested every day
   against Neovim nightly.
 
@@ -68,20 +68,34 @@ go install github.com/Shougo/ng/cmd/ng@latest
 
 ```sh
 ng [--nvim PATH] [--geometry COLSxROWS] [--] [nvim arguments...]
-ng --server ADDRESS
+ng --server [ADDRESS]
 ```
 
 | Option | Description |
 | --- | --- |
 | `--nvim PATH` | Neovim executable to start (default: `nvim`) |
 | `--geometry COLSxROWS` | Initial grid size (default: `80x24`) |
-| `--server ADDRESS` | Attach to a running Neovim server (socket path or `host:port`) |
+| `--server [ADDRESS]` | Attach to a running Neovim server (socket path or `host:port`). Without an address, attach to the Neovim a crashed ng left behind |
 
 Long command lines are best kept in a shell alias.
 
 ng starts `nvim --headless --listen <socket>` in its own session and
 attaches to it. Closing the window runs `:confirm qall`, so Neovim asks
 about unsaved buffers.
+
+### When ng crashes
+
+Neovim is not affected: it keeps every buffer, unsaved changes included.
+Run
+
+```sh
+ng --server
+```
+
+to attach to it again. ng looks for the Neovim servers it started
+(`$XDG_RUNTIME_DIR/ng.*.sock`) that have no window. If there are several,
+it lists them with their current file and number of modified buffers.
+Inside ng, `:echo v:servername` shows the address.
 
 ## Configuration
 
