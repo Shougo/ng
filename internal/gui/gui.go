@@ -15,6 +15,7 @@ import (
 	"os"
 	"slices"
 	"sync"
+	"time"
 	"unsafe"
 
 	"github.com/Shougo/ng/internal/atlas"
@@ -59,6 +60,7 @@ type App struct {
 	pixW, pixH int
 	focused    bool
 	title      string
+	drawn      bool // painted since the last present
 
 	verts []C.SDL_Vertex
 	idx   []C.int
@@ -200,34 +202,63 @@ func (a *App) showWaiting() {
 	a.present()
 }
 
+// Frame coalescing. Neovim sometimes sends several flushes for one
+// action (for example entering the command line with cmdheight=0 first
+// draws the command line, then moves the windows). A terminal shows only
+// the last of them because it reads them together; ng presenting each
+// flush at once made the intermediate screens flicker. After a flush, ng
+// waits until Neovim has been quiet for quietMs before presenting, but
+// never more than maxDelayMs, so typing stays well under a frame of
+// latency.
+const (
+	quietMs    = 2
+	maxDelayMs = 8
+)
+
 func (a *App) loop() error {
-	wakeType := uint32(C.ng_get_wake_type())
 	var ev C.SDL_Event
 	for {
 		if C.ng_wait(&ev) == 0 {
 			return sdlError("SDL_WaitEvent")
 		}
-		present := false
-		for {
-			e := flatten(&ev)
-			if e.typ != wakeType && a.handle(e) {
-				present = true
-			}
-			if C.ng_poll(&ev) == 0 {
-				break
-			}
-		}
-		drawn, closed, err := a.processRedraws()
-		if err != nil {
+		present, closed, err := a.drain(&ev)
+		if err != nil || closed {
 			return err
 		}
-		if closed {
-			return nil
+		if a.drawn {
+			deadline := time.Now().Add(maxDelayMs * time.Millisecond)
+			for time.Now().Before(deadline) && C.ng_wait_timeout(&ev, quietMs) != 0 {
+				p, closed, err := a.drain(&ev)
+				if err != nil || closed {
+					return err
+				}
+				present = present || p
+			}
 		}
-		if drawn || present {
+		if a.drawn || present {
+			a.drawn = false
 			a.present()
 		}
 	}
+}
+
+// drain handles ev and every other pending event, then applies the queued
+// redraws. Painting into the screen texture happens at each flush; only
+// presenting is deferred.
+func (a *App) drain(ev *C.SDL_Event) (present, closed bool, err error) {
+	wakeType := uint32(C.ng_get_wake_type())
+	for {
+		e := flatten(ev)
+		if e.typ != wakeType && a.handle(e) {
+			present = true
+		}
+		if C.ng_poll(ev) == 0 {
+			break
+		}
+	}
+	drawn, closed, err := a.processRedraws()
+	a.drawn = a.drawn || drawn
+	return present, closed, err
 }
 
 // processRedraws applies queued redraw batches and paints at each flush.

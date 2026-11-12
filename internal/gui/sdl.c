@@ -69,6 +69,7 @@ Uint32 ng_get_wake_type(void) { return ng_wake_type; }
 
 int ng_wait(SDL_Event *e) { return SDL_WaitEvent(e) ? 1 : 0; }
 int ng_poll(SDL_Event *e) { return SDL_PollEvent(e) ? 1 : 0; }
+int ng_wait_timeout(SDL_Event *e, int ms) { return SDL_WaitEventTimeout(e, ms) ? 1 : 0; }
 
 SDL_Window *ng_create_window(const char *title, int w, int h) {
 	return SDL_CreateWindow(title, w, h,

@@ -22,6 +22,7 @@ void ng_wake(void);
 Uint32 ng_get_wake_type(void);
 int ng_wait(SDL_Event *e);
 int ng_poll(SDL_Event *e);
+int ng_wait_timeout(SDL_Event *e, int ms);
 SDL_Window *ng_create_window(const char *title, int w, int h);
 void ng_fill(SDL_Renderer *r, int x, int y, int w, int h, Uint32 rgb);
 SDL_Texture *ng_create_texture(SDL_Renderer *r, int access, int w, int h);
