@@ -109,7 +109,8 @@ func TestAttachDuringInputPrompt(t *testing.T) {
 // reconnect attaches a second client to addr (without a UI yet).
 func reconnect(t *testing.T, addr string) (*harness, *nvim.Nvim) {
 	t.Helper()
-	h := &harness{t: t, scr: screen.New(60, 8), flushed: make(chan struct{}, 1)}
+	h := &harness{t: t, scr: screen.New(60, 8), flushed: make(chan struct{}, 1),
+		uiEntered: make(chan struct{}, 1)}
 	var nv *nvim.Nvim
 	var err error
 	for i := 0; i < 50; i++ {
@@ -195,4 +196,38 @@ func TestUI2CommandLineIsHighlighted(t *testing.T) {
 		return false
 	})
 	h.input("<Esc>")
+}
+
+// ng shows its window only after UIEnter, so that it appears once, with
+// the fonts and size from the config. UIEnter must therefore arrive after
+// the config (and -c commands) have run.
+func TestUIEnterAfterConfig(t *testing.T) {
+	h := start(t, 40, 6, false, "-c", "let g:c_done = 1")
+	select {
+	case <-h.uiEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no UIEnter notification")
+	}
+	if v, err := h.nv.Call("nvim_get_var", "c_done"); err != nil || v != int64(1) {
+		t.Errorf("config had not run at UIEnter: %#v, %v", v, err)
+	}
+}
+
+// Attaching to a running server also sends UIEnter, so "ng --server"
+// shows its window too.
+func TestUIEnterOnReattach(t *testing.T) {
+	h := start(t, 40, 6, false)
+	<-h.uiEntered
+	addr := h.nv.Addr
+	h.nv.Close()
+
+	h2, nv := reconnect(t, addr)
+	if err := nv.Prepare(nvim.Bootstrap, 40, 6, nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-h2.uiEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no UIEnter notification after reattaching")
+	}
 }

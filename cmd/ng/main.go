@@ -8,15 +8,20 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/Shougo/ng/internal/cli"
 	"github.com/Shougo/ng/internal/gui"
 	"github.com/Shougo/ng/internal/nvim"
+	"github.com/Shougo/ng/internal/rpc"
 )
 
 // version may be set by packagers with -ldflags "-X main.version=...";
 // otherwise it comes from Go's build information (see cli.Version).
 var version = "dev"
+
+// start is when the process began, for startup timing in --trace.
+var start = time.Now()
 
 func main() {
 	os.Exit(run())
@@ -45,7 +50,7 @@ func run() int {
 		cfg.Server = addr
 	}
 
-	opts := gui.Options{Cols: cfg.Cols, Rows: cfg.Rows}
+	opts := gui.Options{Cols: cfg.Cols, Rows: cfg.Rows, Start: start}
 	if cfg.Trace != "" {
 		f, err := os.Create(cfg.Trace)
 		if err != nil {
@@ -57,18 +62,16 @@ func run() int {
 		opts.Trace = f
 	}
 
-	app := gui.New()
-	var nv *nvim.Nvim
-	if cfg.Server != "" {
-		nv, err = nvim.Connect(cfg.Server, app.Enqueue, nil)
-	} else {
-		nv, err = nvim.Start(cfg.Nvim, cfg.NvimArgs, app.Enqueue, nil)
-	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "ng:", err)
-		return 1
+	// Neovim is started (or attached to) by the GUI on another goroutine,
+	// while the window is being created.
+	connect := func(onNotify rpc.NotificationHandler) (*nvim.Nvim, error) {
+		if cfg.Server != "" {
+			return nvim.Connect(cfg.Server, onNotify, nil)
+		}
+		return nvim.Start(cfg.Nvim, cfg.NvimArgs, onNotify, nil)
 	}
 
+	app := gui.New()
 	defer func() {
 		// Neovim runs in its own process: if the GUI fails, nothing is
 		// lost, and the user can attach again.
@@ -77,12 +80,14 @@ func run() int {
 			panic(r)
 		}
 	}()
-	if err := app.Run(nv, opts); err != nil {
+	if err := app.Run(connect, opts); err != nil {
 		fmt.Fprintf(os.Stderr, "ng: %v\n", err)
-		select {
-		case <-nv.Done():
-		default:
-			fmt.Fprintf(os.Stderr, "Neovim is still running; attach again with:\n  ng --server %s\n", nv.Addr)
+		if addr := app.NvimAddr(); addr != "" {
+			select {
+			case <-app.NvimDone():
+			default:
+				fmt.Fprintf(os.Stderr, "Neovim is still running; attach again with:\n  ng --server %s\n", addr)
+			}
 		}
 		return 1
 	}

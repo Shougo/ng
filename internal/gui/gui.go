@@ -25,6 +25,7 @@ import (
 	"github.com/Shougo/ng/internal/input"
 	"github.com/Shougo/ng/internal/nvim"
 	"github.com/Shougo/ng/internal/paint"
+	"github.com/Shougo/ng/internal/rpc"
 	"github.com/Shougo/ng/internal/screen"
 )
 
@@ -38,7 +39,12 @@ const bootstrap = nvim.Bootstrap
 type Options struct {
 	Cols, Rows int
 	Trace      io.Writer // receives a log of redraws and frames, or nil
+	Start      time.Time // when the process started (for startup timing)
 }
+
+// Connector starts or attaches to Neovim. Run calls it on a goroutine, in
+// parallel with creating the window.
+type Connector func(onNotify rpc.NotificationHandler) (*nvim.Nvim, error)
 
 type rect struct{ x, y, w, h int }
 
@@ -69,6 +75,10 @@ type App struct {
 	idx   []C.int
 
 	attached     bool
+	uiEntered    bool // Neovim's UIEnter has fired: the config has run
+	flushed      bool // at least one complete screen has arrived
+	shown        bool // the window is visible
+	presented    bool
 	gridCols     int // grid size that fits the window
 	gridRows     int
 	suppressText bool
@@ -88,8 +98,9 @@ type App struct {
 
 // batch is one redraw notification and when it arrived.
 type batch struct {
-	params []any
-	at     time.Time
+	params  []any
+	at      time.Time
+	uiEnter bool // the UIEnter notification, kept in order with redraws
 }
 
 // tracef writes a timestamped line to the trace, if enabled.
@@ -118,11 +129,17 @@ func New() *App {
 // Enqueue is the redraw notification handler. It runs on the RPC reader
 // goroutine and only hands the batch to the main thread.
 func (a *App) Enqueue(method string, params []any) {
-	if method != "redraw" {
+	var b batch
+	switch method {
+	case "redraw":
+		b = batch{params: params, at: time.Now()}
+	case nvim.UIEnterNotification:
+		b = batch{at: time.Now(), uiEnter: true}
+	default:
 		return
 	}
 	a.mu.Lock()
-	a.batches = append(a.batches, batch{params, time.Now()})
+	a.batches = append(a.batches, b)
 	a.mu.Unlock()
 	wake()
 }
@@ -134,15 +151,31 @@ func (a *App) markClosed() {
 	wake()
 }
 
-// Run creates the window, attaches to nv and runs until Neovim closes the
-// connection. It must be called from the main goroutine.
-func (a *App) Run(nv *nvim.Nvim, opt Options) error {
-	a.nv = nv
-	a.trace, a.traceStart = opt.Trace, time.Now()
+// Run connects to Neovim, creates the window and runs until Neovim closes
+// the connection. It must be called from the main goroutine.
+//
+// Startup runs in parallel: Neovim starts (and reads the user's config once
+// ng has attached), fontconfig loads its caches, and SDL creates the window
+// and renderer, all at the same time. The window stays hidden until
+// Neovim's UI has entered (the config has run) and the next screen is
+// complete, so it appears once, with the fonts and size from the config.
+func (a *App) Run(connect Connector, opt Options) error {
+	a.trace, a.traceStart = opt.Trace, opt.Start
+	if a.traceStart.IsZero() {
+		a.traceStart = time.Now()
+	}
+	a.mark("run")
+	go func() {
+		nv, err := connect(a.Enqueue)
+		a.post(func() { a.connected(nv, err) })
+	}()
+	go font.Warmup()
+
 	if !C.ng_init() {
 		return sdlError("SDL_Init")
 	}
 	defer C.SDL_Quit()
+	a.mark("sdl initialized")
 
 	title := C.CString("ng")
 	a.win = C.ng_create_window(title, 800, 600)
@@ -160,30 +193,58 @@ func (a *App) Run(nv *nvim.Nvim, opt Options) error {
 		return sdlError("atlas texture")
 	}
 	a.packer = atlas.NewPacker(atlasSize, atlasSize)
+	a.mark("renderer created")
 
 	a.scr = screen.New(opt.Cols, opt.Rows)
-	if err := a.loadFonts("", "", 0); err != nil {
-		return err
-	}
-	a.resizeWindowToGrid(opt.Cols, opt.Rows)
-	C.SDL_ShowWindow(a.win)
+	a.gridCols, a.gridRows = opt.Cols, opt.Rows
 	C.SDL_StartTextInput(a.win)
+	return a.loop()
+}
 
+// NvimAddr returns the address of the Neovim ng is connected to, or "".
+func (a *App) NvimAddr() string {
+	if a.nv == nil {
+		return ""
+	}
+	return a.nv.Addr
+}
+
+// NvimDone is closed when the connection to Neovim ends (nil before it
+// exists).
+func (a *App) NvimDone() <-chan struct{} {
+	if a.nv == nil {
+		return nil
+	}
+	return a.nv.Done()
+}
+
+// mark records a startup milestone in the trace.
+func (a *App) mark(what string) {
+	if a.trace != nil {
+		a.tracef(time.Now(), "startup %s", what)
+	}
+}
+
+// connected runs on the main thread once Neovim is reachable.
+func (a *App) connected(nv *nvim.Nvim, err error) {
+	if err != nil {
+		a.fatal = err
+		return
+	}
+	a.nv = nv
+	a.mark("nvim connected")
 	go func() {
-		a.nv.Serve()
+		nv.Serve()
 		a.markClosed()
 	}()
 	// Attaching may wait for Neovim (see nvim.Prepare), so it runs on its
 	// own goroutine and the window stays responsive: keys typed meanwhile
-	// reach Neovim and can answer the prompt it is waiting at. The window
-	// manager may not have given the size we asked for, so attach with the
-	// grid that really fits.
+	// reach Neovim and can answer the prompt it is waiting at.
 	cols, rows := a.gridCols, a.gridRows
 	go func() {
-		err := a.nv.Prepare(bootstrap, cols, rows, func() { a.post(a.showWaiting) })
+		err := nv.Prepare(bootstrap, cols, rows, func() { a.post(a.showWaiting) })
 		a.post(func() { a.attachDone(err) })
 	}()
-	return a.loop()
 }
 
 // attachDone runs on the main thread when nvim.Prepare has finished.
@@ -193,7 +254,8 @@ func (a *App) attachDone(err error) {
 		return
 	}
 	a.attached = true
-	if a.gridCols != a.scr.Width || a.gridRows != a.scr.Height {
+	a.mark("attached")
+	if a.shown && (a.gridCols != a.scr.Width || a.gridRows != a.scr.Height) {
 		a.nv.TryResize(a.gridCols, a.gridRows)
 	}
 	// Errors from init.lua etc. that a headless Neovim could not show.
@@ -220,9 +282,13 @@ func (a *App) showWaiting() {
 		events = append(events, []any{"grid_line", []any{int64(1), int64(i), int64(0), cells, false}})
 	}
 	a.scr.HandleRedraw(events)
+	a.show()
 	a.paintDirty()
 	a.present()
 }
+
+// showTimeout is how long ng waits for UIEnter before showing the window.
+const showTimeout = 2 * time.Second
 
 // Frame coalescing: see package frame.
 const (
@@ -233,10 +299,28 @@ const (
 func (a *App) loop() error {
 	var ev C.SDL_Event
 	for {
-		if C.ng_wait(&ev) == 0 {
+		if !a.shown {
+			// Show the window even if UIEnter never comes (an old Neovim,
+			// or a config that never finishes), so the user is not left
+			// with nothing.
+			if time.Since(a.traceStart) > showTimeout && a.flushed {
+				a.show()
+				a.paintDirty()
+				a.present()
+			}
+		}
+		got := true
+		if !a.shown {
+			// Wake up regularly while hidden, for the timeout above.
+			got = C.ng_wait_timeout(&ev, 50) != 0
+		} else if C.ng_wait(&ev) == 0 {
 			return sdlError("SDL_WaitEvent")
 		}
-		present, closed, err := a.drain(&ev)
+		evp := &ev
+		if !got {
+			evp = nil // timed out: only process queued redraws
+		}
+		present, closed, err := a.drain(evp)
 		if err != nil || closed {
 			return err
 		}
@@ -262,7 +346,7 @@ func (a *App) loop() error {
 // presenting is deferred.
 func (a *App) drain(ev *C.SDL_Event) (present, closed bool, err error) {
 	wakeType := uint32(C.ng_get_wake_type())
-	for {
+	for ev != nil {
 		e := flatten(ev)
 		if e.typ != wakeType && a.handle(e) {
 			present = true
@@ -290,6 +374,17 @@ func (a *App) processRedraws() (drawn, closed bool, err error) {
 		return drawn, closed, a.fatal
 	}
 	for _, b := range batches {
+		if b.uiEnter {
+			a.tracef(b.at, "startup UIEnter (config has run)")
+			a.uiEntered = true
+			if a.flushed && !a.shown {
+				// Nothing may change after UIEnter: show what we have.
+				a.show()
+				a.paintDirty()
+				drawn = true
+			}
+			continue
+		}
 		if a.trace != nil {
 			a.tracef(b.at, "redraw  %s", screen.Describe(b.params))
 		}
@@ -298,7 +393,11 @@ func (a *App) processRedraws() (drawn, closed bool, err error) {
 			return drawn, closed, err
 		}
 		if flush {
+			a.flushed = true
 			a.applyUIChanges()
+			if a.uiEntered && !a.shown {
+				a.show()
+			}
 			a.paintDirty()
 			drawn = true
 		}
@@ -314,7 +413,7 @@ func (a *App) applyUIChanges() {
 		gf, gfw := a.scr.OptionString("guifont"), a.scr.OptionString("guifontwide")
 		if err := a.loadFonts(gf, gfw, a.scr.OptionInt("linespace")); err != nil {
 			a.errorMessage(err.Error())
-		} else {
+		} else if a.shown {
 			// Like GVim: keep 'lines' and 'columns' and resize the window.
 			a.resizeWindowToGrid(a.scr.Width, a.scr.Height)
 		}
@@ -379,9 +478,33 @@ func (a *App) resizeWindowToGrid(cols, rows int) {
 	d := float64(C.ng_pixel_density(a.win))
 	w := int(math.Ceil(float64(cols*a.fonts.CellW) / d))
 	h := int(math.Ceil(float64(rows*a.fonts.CellH) / d))
+	// No SDL_SyncWindow: a tiling window manager may never apply the size,
+	// and waiting for it would stall. The real size arrives as
+	// SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED.
 	C.SDL_SetWindowSize(a.win, C.int(w), C.int(h))
-	C.SDL_SyncWindow(a.win)
 	a.updatePixelSize()
+}
+
+// show makes the window visible the first time: with the fonts from the
+// config, sized for the grid Neovim uses.
+func (a *App) show() {
+	if a.shown {
+		return
+	}
+	if a.fonts == nil {
+		if err := a.loadFonts(a.scr.OptionString("guifont"), a.scr.OptionString("guifontwide"),
+			a.scr.OptionInt("linespace")); err != nil {
+			a.errorMessage(err.Error())
+			if a.loadFonts("", "", 0) != nil {
+				return
+			}
+		}
+	}
+	a.resizeWindowToGrid(a.scr.Width, a.scr.Height)
+	C.SDL_ShowWindow(a.win)
+	a.shown = true
+	a.updatePixelSize()
+	a.mark("window shown")
 }
 
 // updatePixelSize reads the drawable size and resizes the grid to fit.
@@ -389,6 +512,9 @@ func (a *App) updatePixelSize() {
 	var w, h C.int
 	C.SDL_GetWindowSizeInPixels(a.win, &w, &h)
 	a.pixW, a.pixH = int(w), int(h)
+	if a.fonts == nil || !a.shown {
+		return
+	}
 	a.gridCols = max(1, a.pixW/a.fonts.CellW)
 	a.gridRows = max(1, a.pixH/a.fonts.CellH)
 	if a.attached && (a.gridCols != a.scr.Width || a.gridRows != a.scr.Height) {
@@ -413,6 +539,9 @@ func (a *App) ensureScreenTexture() bool {
 
 // paintDirty repaints the changed rows into the screen texture.
 func (a *App) paintDirty() {
+	if !a.shown || a.fonts == nil {
+		return
+	}
 	full := a.ensureScreenTexture()
 	if a.screenTex == nil {
 		return
@@ -434,8 +563,12 @@ func (a *App) paintDirty() {
 
 // present shows the screen texture and the cursor on top of it.
 func (a *App) present() {
-	if a.screenTex == nil {
+	if a.screenTex == nil || !a.shown {
 		return
+	}
+	if !a.presented {
+		a.presented = true
+		a.mark("first frame presented")
 	}
 	C.ng_blit(a.ren, a.screenTex, C.int(a.pixW), C.int(a.pixH))
 	paint.Cursor(a, a.scr, a.fonts, a.focused)
@@ -500,6 +633,9 @@ func (a *App) flushGlyphs() {
 // handle processes one SDL event and reports whether the window needs to
 // be presented again.
 func (a *App) handle(e event) bool {
+	if a.nv == nil {
+		return false // not connected yet; the window is still hidden
+	}
 	switch e.typ {
 	case C.SDL_EVENT_QUIT, C.SDL_EVENT_WINDOW_CLOSE_REQUESTED:
 		// Let Neovim decide: it asks about unsaved buffers, and ng exits

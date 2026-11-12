@@ -155,6 +155,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync"
 	"unicode/utf8"
 	"unsafe"
 )
@@ -230,25 +231,18 @@ type fallKey struct {
 	style Style
 }
 
-var fcInit = sync1(func() error {
+// fcInit initializes fontconfig once. Loading its caches takes a while,
+// so ng starts it early on another goroutine (Warmup).
+var fcInit = sync.OnceValue(func() error {
 	if C.FcInit() == 0 {
 		return errors.New("font: FcInit failed")
 	}
 	return nil
 })
 
-func sync1(f func() error) func() error {
-	var (
-		done bool
-		err  error
-	)
-	return func() error {
-		if !done {
-			err, done = f(), true
-		}
-		return err
-	}
-}
+// Warmup initializes fontconfig ahead of the first NewSet. It is safe to
+// call from any goroutine.
+func Warmup() { fcInit() }
 
 // NewSet loads the fonts named by guifont and guifontwide at the given DPI.
 // linespace adds pixels to every row, like the 'linespace' option.

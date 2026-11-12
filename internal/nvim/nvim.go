@@ -117,7 +117,7 @@ func Start(nvimPath string, args []string, onNotify rpc.NotificationHandler, onR
 				return nil, fmt.Errorf("%s exited before listening: %v\n%s", nvimPath, err, msg)
 			}
 			return nil, fmt.Errorf("%s exited before listening: %v", nvimPath, err)
-		case <-time.After(20 * time.Millisecond):
+		case <-time.After(2 * time.Millisecond): // startup time matters
 		}
 		if time.Now().After(deadline) {
 			cmd.Process.Kill()
@@ -216,8 +216,21 @@ package.loaded.ng_paste = function(name)
   vim.paste(lines, -1)
 end`
 
+// UIEnterNotification is sent to ng when its UI has entered, that is after
+// Neovim has finished starting (the user's config has run) or, for a
+// running server, right after attaching. ng shows its window at the next
+// flush, with the fonts and size the config chose.
+const UIEnterNotification = "ng_ui_enter"
+
+const uiEnterLua = `
+local chan = vim.api.nvim_get_api_info()[1]
+vim.api.nvim_create_autocmd('UIEnter', {
+  once = true,
+  callback = function() vim.rpcnotify(chan, '` + UIEnterNotification + `') end,
+})`
+
 // Bootstrap is the Lua ng runs in Neovim before attaching.
-const Bootstrap = "vim.g.ng = 1\n" + pasteLua
+const Bootstrap = "vim.g.ng = 1\n" + pasteLua + "\n" + uiEnterLua
 
 var pasteSeq atomic.Int64
 

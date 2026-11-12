@@ -34,7 +34,8 @@ type harness struct {
 	fonts *font.Set
 	img   *paint.ImagePainter
 
-	flushed chan struct{}
+	flushed   chan struct{}
+	uiEntered chan struct{}
 }
 
 func start(t *testing.T, cols, rows int, withPaint bool, args ...string) *harness {
@@ -43,7 +44,8 @@ func start(t *testing.T, cols, rows int, withPaint bool, args ...string) *harnes
 	if bin == "" {
 		bin = "nvim"
 	}
-	h := &harness{t: t, scr: screen.New(cols, rows), flushed: make(chan struct{}, 1)}
+	h := &harness{t: t, scr: screen.New(cols, rows), flushed: make(chan struct{}, 1),
+		uiEntered: make(chan struct{}, 1)}
 	if withPaint {
 		f, err := font.NewSet("Courier 10 Pitch,DejaVu Sans Mono,monospace:h11", "", 96, 0)
 		if err != nil {
@@ -76,6 +78,13 @@ func start(t *testing.T, cols, rows int, withPaint bool, args ...string) *harnes
 }
 
 func (h *harness) onNotify(method string, params []any) {
+	if method == nvim.UIEnterNotification {
+		select {
+		case h.uiEntered <- struct{}{}:
+		default:
+		}
+		return
+	}
 	if method != "redraw" {
 		return
 	}

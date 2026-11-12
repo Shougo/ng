@@ -113,7 +113,9 @@ ng --server [ADDRESS]
 Long command lines are best kept in a shell alias.
 
 ng starts `nvim --embed --listen <socket>` in its own session and
-attaches to it. As with the builtin TUI, Neovim reads your config only
+attaches to it. Starting Neovim, loading fontconfig and creating the
+window run in parallel; the window appears once, after your config has
+run, already with your fonts and size. As with the builtin TUI, Neovim reads your config only
 after ng has attached, so plugins that look at the UI while starting
 (for example `vim._core.ui2`) work as in a terminal. Closing the window runs `:confirm qall`, so Neovim asks
 about unsaved buffers.
@@ -174,6 +176,33 @@ drawn too small, give it the width you want with `setcellwidths()` or
 
 Hinting and antialiasing follow your fontconfig settings
 (`~/.config/fontconfig/fonts.conf`).
+
+## Why SDL3 (and not GTK, Qt or a Go toolkit)
+
+A Neovim GUI does not need widgets: it draws one grid of text. What
+matters is how text is drawn and how input reaches Neovim, so ng keeps
+those in its own hands and uses SDL3 only for the window, input and
+putting pixels on the screen.
+
+- **Text is ng's own.** ng renders glyphs with FreeType, chooses fonts
+  with fontconfig and fits every glyph into its cells. GTK and Qt render
+  text through Pango or their own layers, which decide for you. Pango,
+  for example, dropped Type 1 and bitmap fonts, which is why such fonts
+  stopped working in GVim. Go toolkits such as Gio rasterize text
+  themselves, without hinting and without Type 1 support.
+- **X11 and Wayland with one code base**, including xrdp sessions.
+  Writing both backends directly would double the code to maintain.
+- **Works without a GPU.** SDL_Renderer uses OpenGL or Vulkan when they
+  are available and falls back to software rendering (for example under
+  xrdp) with the same drawing code. Toolkits built on OpenGL alone, such
+  as GLFW, cannot.
+- **Input methods later.** SDL3 text input supports IBus, Fcitx 5 and the
+  Wayland text-input protocol, should ng need them.
+- **No extra dependencies.** SDL3 is called directly through cgo, without
+  third-party Go bindings, and is packaged by the major distributions.
+
+The price is cgo (a C compiler and the SDL3 development files are needed
+to build) and, on GNOME Wayland, window decorations drawn by libdecor.
 
 ## Development
 
