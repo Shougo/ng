@@ -222,15 +222,17 @@ end`
 // flush, with the fonts and size the config chose.
 const UIEnterNotification = "ng_ui_enter"
 
+// uiEnterLua expects ng's channel id in the variable chan. (Lua cannot
+// find it itself: nvim_get_api_info is a remote-only function.)
 const uiEnterLua = `
-local chan = vim.api.nvim_get_api_info()[1]
 vim.api.nvim_create_autocmd('UIEnter', {
   once = true,
   callback = function() vim.rpcnotify(chan, '` + UIEnterNotification + `') end,
 })`
 
-// Bootstrap is the Lua ng runs in Neovim before attaching.
-const Bootstrap = "vim.g.ng = 1\n" + pasteLua + "\n" + uiEnterLua
+// Bootstrap is the Lua ng runs in Neovim before attaching. Prepare passes
+// ng's channel id as its first argument.
+const Bootstrap = "local chan = ...\nvim.g.ng = 1\n" + pasteLua + "\n" + uiEnterLua
 
 var pasteSeq atomic.Int64
 

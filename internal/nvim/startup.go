@@ -1,8 +1,11 @@
 package nvim
 
 import (
+	"fmt"
 	"os"
 	"strings"
+
+	"github.com/Shougo/ng/internal/msgpack"
 )
 
 // Prepare runs the bootstrap Lua and attaches the UI.
@@ -21,11 +24,30 @@ func (n *Nvim) Prepare(bootstrap string, cols, rows int, onBlocked func()) error
 		onBlocked()
 	}
 	if bootstrap != "" {
-		if _, err := n.ExecLua(bootstrap); err != nil {
+		ch, err := n.ChannelID()
+		if err != nil {
+			return err
+		}
+		if _, err := n.ExecLua(bootstrap, ch); err != nil {
 			return err
 		}
 	}
 	return n.Attach(cols, rows)
+}
+
+// ChannelID returns the id of ng's own channel in Neovim (for rpcnotify
+// from Lua). nvim_get_chan_info(0) means "the calling channel".
+func (n *Nvim) ChannelID() (int64, error) {
+	v, err := n.Call("nvim_get_chan_info", 0)
+	if err != nil {
+		return 0, err
+	}
+	m, _ := v.(map[string]any)
+	id, err := msgpack.ToInt(m["id"])
+	if err != nil || id <= 0 {
+		return 0, fmt.Errorf("nvim: no channel id in %#v", v)
+	}
+	return id, nil
 }
 
 // Blocking reports whether Neovim is waiting for input. nvim_get_mode is

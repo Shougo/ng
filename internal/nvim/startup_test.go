@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -49,6 +50,25 @@ func (b *blockedNvim) serve(t *testing.T, conn net.Conn) {
 				reply(id)
 			}
 			continue
+		case kind == 0 && msg[2] == "nvim_get_chan_info":
+			b.requests = append(b.requests, "nvim_get_chan_info")
+			wmu.Lock()
+			enc.Encode([]any{int64(1), msg[1], nil, map[string]any{"id": int64(3)}})
+			wmu.Unlock()
+			if args, _ := msg[3].([]any); len(args) != 1 || args[0] != int64(0) {
+				t.Errorf("nvim_get_chan_info args %#v, want [0]", msg[3])
+			}
+		case kind == 0 && msg[2] == "nvim_exec_lua":
+			// The bootstrap gets ng's channel id as its argument.
+			if args, _ := msg[3].([]any); len(args) != 2 || !reflect.DeepEqual(args[1], []any{int64(3)}) {
+				t.Errorf("nvim_exec_lua args %#v, want the channel id 3", msg[3])
+			}
+			b.requests = append(b.requests, "nvim_exec_lua")
+			if b.blocked {
+				b.held = append(b.held, msg[1])
+			} else {
+				reply(msg[1])
+			}
 		case kind == 0 && msg[2] == "nvim_get_mode":
 			wmu.Lock()
 			enc.Encode([]any{int64(1), msg[1], nil, map[string]any{"mode": "n", "blocking": b.blocked}})
@@ -106,7 +126,7 @@ func TestPrepareWhenBlocked(t *testing.T) {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if want := []string{"nvim_exec_lua", "nvim_ui_attach"}; !reflect.DeepEqual(b.requests, want) {
+	if want := []string{"nvim_get_chan_info", "nvim_exec_lua", "nvim_ui_attach"}; !reflect.DeepEqual(b.requests, want) {
 		t.Errorf("requests %v, want %v", b.requests, want)
 	}
 }
@@ -137,5 +157,26 @@ func TestStartupErrors(t *testing.T) {
 	}
 	if (&Nvim{}).StartupErrors() != "" {
 		t.Error("attached server has no startup log")
+	}
+}
+
+// Some API functions exist only for RPC clients and are nil in Lua
+// (vim.api.nvim_get_api_info broke ng's startup once). The Lua ng sends to
+// Neovim must not use them.
+func TestLuaUsesNoRemoteOnlyFunctions(t *testing.T) {
+	remoteOnly := []string{
+		"nvim_get_api_info", "nvim_ui_attach", "nvim_ui_detach",
+		"nvim_ui_try_resize", "nvim_ui_set_option", "nvim_ui_set_focus",
+		"nvim_set_client_info", "nvim_ui_pum_set_height", "nvim_ui_pum_set_bounds",
+	}
+	for name, code := range map[string]string{
+		"Bootstrap": Bootstrap,
+		"probeLua":  probeLua,
+	} {
+		for _, f := range remoteOnly {
+			if strings.Contains(code, f) {
+				t.Errorf("%s calls the remote-only function %s", name, f)
+			}
+		}
 	}
 }
