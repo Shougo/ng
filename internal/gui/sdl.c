@@ -8,6 +8,8 @@
 void ng_flatten(const SDL_Event *e, ng_event *o) {
 	memset(o, 0, sizeof(*o));
 	o->type = e->type;
+	Uint64 now = SDL_GetTicksNS();
+	o->age_ns = now > e->common.timestamp ? now - e->common.timestamp : 0;
 	switch (e->type) {
 	case SDL_EVENT_KEY_DOWN:
 	case SDL_EVENT_KEY_UP:

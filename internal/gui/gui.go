@@ -15,6 +15,7 @@ import (
 	"math"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -24,6 +25,7 @@ import (
 	"github.com/Shougo/ng/internal/font"
 	"github.com/Shougo/ng/internal/frame"
 	"github.com/Shougo/ng/internal/input"
+	"github.com/Shougo/ng/internal/latency"
 	"github.com/Shougo/ng/internal/msgpack"
 	"github.com/Shougo/ng/internal/nvim"
 	"github.com/Shougo/ng/internal/paint"
@@ -98,6 +100,7 @@ type App struct {
 
 	trace      io.Writer
 	traceStart time.Time
+	latency    latency.Recorder // keystroke to frame, for --trace
 
 	mu      sync.Mutex
 	batches []batch
@@ -241,7 +244,12 @@ func (a *App) Run(connect Connector, opt Options) error {
 	a.scr = screen.New(opt.Cols, opt.Rows)
 	a.gridCols, a.gridRows = opt.Cols, opt.Rows
 	a.setTextInput(true)
-	return a.loop()
+	err := a.loop()
+	if a.trace != nil {
+		fmt.Fprintf(a.trace, "# latency (key event to present, inside ng)\n# %s\n",
+			strings.ReplaceAll(latency.Summary(a.latency.Samples()), "\n", "\n# "))
+	}
+	return err
 }
 
 // NvimAddr returns the address of the Neovim ng is connected to, or "".
@@ -453,6 +461,7 @@ func (a *App) processRedraws() (drawn, closed bool, err error) {
 		}
 		if flush {
 			a.flushed = true
+			a.latency.Flush(b.at)
 			a.applyUIChanges()
 			a.keepGridFitted()
 			a.updateTextInput()
@@ -711,6 +720,10 @@ func (a *App) present() {
 	a.setIMEArea(area, cursorX)
 	C.SDL_RenderPresent(a.ren)
 	if a.trace != nil {
+		if l, ok := a.latency.Present(time.Now()); ok {
+			a.tracef(time.Now(), "latency %.2f ms (queue %.2f, nvim %.2f, frame %.2f)",
+				msf(l.Total()), msf(l.Queue), msf(l.Nvim), msf(l.Frame))
+		}
 		m := a.scr.CurrentMode()
 		a.tracef(time.Now(), "present cursor=(%d,%d) mode=%s busy=%v",
 			a.scr.CursorRow, a.scr.CursorCol, m.Name, a.scr.Busy)
@@ -863,6 +876,8 @@ func (a *App) handle(e event) bool {
 		return true
 	case C.SDL_EVENT_KEY_DOWN:
 		if a.trace != nil {
+			now := time.Now()
+			a.latency.Key(now.Add(-e.age), now)
 			a.tracef(time.Now(), "key     0x%x typed=%q mod=0x%x text-input=%v", e.key, rune(e.typed), e.mod, a.textInput)
 		}
 		a.keyDown(e)
@@ -887,7 +902,9 @@ func (a *App) handle(e event) bool {
 		}
 		a.suppressText = false
 		if a.trace != nil {
-			a.tracef(time.Now(), "commit  %q", e.text)
+			now := time.Now()
+			a.latency.Key(now.Add(-e.age), now)
+			a.tracef(now, "commit  %q", e.text)
 		}
 		a.nv.Input(input.Text(e.text))
 		return wasComposing
@@ -1083,3 +1100,6 @@ func (a *App) mouse(e event) {
 		}
 	}
 }
+
+// msf is d in milliseconds, for traces.
+func msf(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }

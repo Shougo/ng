@@ -10,6 +10,7 @@ import "C"
 import (
 	"errors"
 	"runtime"
+	"time"
 	"unsafe"
 )
 
@@ -25,6 +26,7 @@ func sdlError(what string) error {
 // event is the Go copy of ng_event.
 type event struct {
 	typ    uint32
+	age    time.Duration // time spent in SDL's queue
 	key    uint32
 	typed  uint32 // character typed, Shift/CapsLock/AltGr applied
 	mod    uint16
@@ -43,6 +45,7 @@ func flatten(e *C.SDL_Event) event {
 	C.ng_flatten(e, &o)
 	ev := event{
 		typ:        uint32(o._type),
+		age:        time.Duration(o.age_ns),
 		key:        uint32(o.key),
 		typed:      uint32(o.typed),
 		mod:        uint16(o.mod),

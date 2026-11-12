@@ -6,6 +6,7 @@
 // Flattened view of the SDL_Event union fields ng uses.
 typedef struct {
 	Uint32 type;
+	Uint64 age_ns; // how long the event waited in SDL's queue
 	SDL_Keycode key;
 	SDL_Keycode typed; // the character the key types with Shift/CapsLock/AltGr applied
 	SDL_Keymod mod;

@@ -338,6 +338,28 @@ drawn too small, give it the width you want with `setcellwidths()` or
 Hinting and antialiasing follow your fontconfig settings
 (`~/.config/fontconfig/fonts.conf`).
 
+## Measuring input latency
+
+`--trace FILE` measures every keystroke from the moment the window
+system delivered the key event to the moment the frame showing Neovim's
+answer was presented, and ends the file with a summary:
+
+```
+# latency (key event to present, inside ng)
+# 42 keystrokes   median    p90     max (ms)
+#   total             ...
+#   queue             ...   (the event waiting in SDL's queue)
+#   nvim              ...   (Neovim answering, including the socket)
+#   frame             ...   (waiting for Neovim to finish, painting, presenting)
+```
+
+This is the part ng and Neovim are responsible for; it does not include
+the compositor or the display. To compare the whole path with a
+terminal, use an external tool that types and watches the screen, such
+as [Typometer](https://github.com/pavelfatin/typometer) (X11 only):
+run it against ng and against Neovim in your terminal, with the same
+config and file.
+
 ## Why SDL3 (and not GTK, Qt or a Go toolkit)
 
 A Neovim GUI does not need widgets: it draws one grid of text. What
