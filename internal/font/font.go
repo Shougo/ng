@@ -183,6 +183,7 @@ type face struct {
 	ft        C.FT_Face
 	path      string
 	index     int
+	base      float64 // configured size in points
 	sizeSet   float64 // last size passed to FT_Set_Char_Size
 	loadFlags C.int
 	mono      bool
@@ -194,6 +195,7 @@ type faceKey struct {
 	path  string
 	index int
 	style Style
+	size  float64
 }
 
 type glyphKey struct {
@@ -277,7 +279,7 @@ func NewSet(guifont, guifontwide string, dpi float64, linespace int) (*Set, erro
 	if len(s.spec.Families) == 0 {
 		s.spec.Families = []string{"monospace"}
 	}
-	regular := s.facesFor(s.spec.Families, 0)
+	regular := s.facesFor(s.spec.Families, 0, s.size)
 	if len(regular) == 0 {
 		s.Close()
 		return nil, fmt.Errorf("font: no usable font for %q", guifont)
@@ -304,10 +306,10 @@ func (s *Set) Close() {
 // Size returns the font size in points.
 func (s *Set) Size() float64 { return s.size }
 
-func (s *Set) facesFor(families []string, style Style) []*face {
+func (s *Set) facesFor(families []string, style Style, size float64) []*face {
 	var out []*face
 	for _, fam := range families {
-		f, err := s.load(fam, style, 0)
+		f, err := s.load(fam, style, 0, size)
 		if err != nil {
 			if style == 0 {
 				s.Warnings = append(s.Warnings, err.Error())
@@ -323,7 +325,7 @@ func (s *Set) primaries(style Style) []*face {
 	if fs, ok := s.byStyle[style]; ok {
 		return fs
 	}
-	fs := s.facesFor(s.spec.Families, style)
+	fs := s.facesFor(s.spec.Families, style, s.size)
 	s.byStyle[style] = fs
 	return fs
 }
@@ -332,14 +334,19 @@ func (s *Set) wides(style Style) []*face {
 	if fs, ok := s.wideBy[style]; ok {
 		return fs
 	}
-	fs := s.facesFor(s.wide.Families, style)
+	// 'guifontwide' may have its own size, as in GVim.
+	size := s.wide.Size
+	if size == 0 {
+		size = s.size
+	}
+	fs := s.facesFor(s.wide.Families, style, size)
 	s.wideBy[style] = fs
 	return fs
 }
 
 // load opens the font fontconfig picks for family (or, with ch != 0 and an
 // empty family, any font containing ch).
-func (s *Set) load(family string, style Style, ch rune) (*face, error) {
+func (s *Set) load(family string, style Style, ch rune, size float64) (*face, error) {
 	var cfam *C.char
 	if family != "" {
 		cfam = C.CString(family)
@@ -364,7 +371,7 @@ func (s *Set) load(family string, style Style, ch rune) (*face, error) {
 		return nil, fmt.Errorf("font: %q not found", family)
 	}
 
-	key := faceKey{path, int(m.index), style}
+	key := faceKey{path, int(m.index), style, size}
 	if f, ok := s.faces[key]; ok {
 		return f, nil
 	}
@@ -374,11 +381,11 @@ func (s *Set) load(family string, style Style, ch rune) (*face, error) {
 	if C.FT_New_Face(s.lib, cpath, C.FT_Long(m.index), &ft) != 0 {
 		return nil, fmt.Errorf("font: cannot open %s", path)
 	}
-	f := &face{ft: ft, path: path, index: int(m.index)}
+	f := &face{ft: ft, path: path, index: int(m.index), base: size}
 	f.embolden = style&Bold != 0 && m.weight < C.FC_WEIGHT_DEMIBOLD
 	f.oblique = style&Italic != 0 && m.slant == C.FC_SLANT_ROMAN
 	f.loadFlags, f.mono = loadFlags(m)
-	if err := s.setSize(f, s.size); err != nil {
+	if err := s.setSize(f, size); err != nil {
 		C.FT_Done_Face(ft)
 		return nil, err
 	}
@@ -474,7 +481,7 @@ func (s *Set) faceFor(r rune, style Style, cells int) (f *face, primary bool) {
 	if f, ok := s.fall[k]; ok {
 		return f, false
 	}
-	f, err := s.load("", style, r)
+	f, err := s.load("", style, r, s.size)
 	if err != nil {
 		f = nil
 	}
@@ -512,7 +519,7 @@ func (s *Set) render(text string, style Style, cells int) *Glyph {
 	// so that their hinting is not disturbed.
 	scale := 1.0
 	if !primary || cells != 1 {
-		if err := s.setSize(f, s.size); err != nil {
+		if err := s.setSize(f, f.base); err != nil {
 			return empty
 		}
 		gi := C.FT_Get_Char_Index(f.ft, C.FT_ULong(base))
@@ -527,10 +534,10 @@ func (s *Set) render(text string, style Style, cells int) *Glyph {
 			}
 		}
 	}
-	if err := s.setSize(f, s.size*scale); err != nil {
+	if err := s.setSize(f, f.base*scale); err != nil {
 		return empty
 	}
-	defer s.setSize(f, s.size)
+	defer s.setSize(f, f.base)
 
 	canvas := newCanvas(availW, s.CellH)
 	originX := 0

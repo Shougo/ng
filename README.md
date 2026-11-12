@@ -127,15 +127,29 @@ Everything is configured from Neovim.
 ```vim
 " Fonts: comma separated fallback list, size with :h
 set guifont=Courier\ 10\ Pitch,Noto\ Sans\ Mono\ CJK\ JP:h11
-" Font for double-width characters (optional)
-set guifontwide=Noto\ Sans\ Mono\ CJK\ JP
+" Font for double-width characters (optional, may have its own size)
+set guifontwide=Noto\ Sans\ Mono\ CJK\ JP:h10
 set linespace=2
 
-" Detect ng
+" Detect ng (g:ng is set before your config is read)
 if exists('g:ng')
   " ...
 endif
 ```
+
+GVim's GTK syntax with the size as the last word also works, so the same
+line serves both GVim and ng:
+
+```vim
+set guifont=Courier\ 10\ Pitch\ 16
+set guifontwide=Noto\ Sans\ Mono\ CJK\ JP\ 14
+```
+
+ng reads fonts with FreeType, so the Type 1 "Courier 10 Pitch" works
+directly; no conversion to OpenType is needed. The size is converted to
+pixels like GTK does (points at 96 dpi times the display scale that SDL
+reports), so the same setting should give the same size as in GVim. If it
+does not, please report it with your `Xft.dpi` and scaling settings.
 
 Every glyph is fitted into the cells Neovim gives it. If a character is
 drawn too small, give it the width you want with `setcellwidths()` or

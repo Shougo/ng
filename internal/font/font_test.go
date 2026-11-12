@@ -17,6 +17,11 @@ func TestParseSpec(t *testing.T) {
 		{"Fira_Code:h10:b", Spec{Families: []string{"Fira Code"}, Size: 10}},
 		{`A\,B,C`, Spec{Families: []string{"A,B", "C"}}},
 		{"*:h9", Spec{Size: 9}},
+		// GVim GTK syntax: size as the last word.
+		{"Courier 10 Pitch OT 16", Spec{Families: []string{"Courier 10 Pitch OT"}, Size: 16}},
+		{"Noto Sans Mono CJK JP 14", Spec{Families: []string{"Noto Sans Mono CJK JP"}, Size: 14}},
+		{"Courier 10 Pitch", Spec{Families: []string{"Courier 10 Pitch"}}},
+		{"Courier 10 Pitch 12:h9", Spec{Families: []string{"Courier 10 Pitch 12"}, Size: 9}},
 	}
 	for _, c := range cases {
 		if got := ParseSpec(c.in); !reflect.DeepEqual(got, c.want) {
@@ -150,5 +155,44 @@ func TestDPIScalesCells(t *testing.T) {
 	defer b.Close()
 	if b.CellH < a.CellH*3/2 {
 		t.Errorf("192 dpi cell height %d not ~2x of %d", b.CellH, a.CellH)
+	}
+}
+
+// GVim and ng read the same settings: the GTK syntax gives the same cells
+// as the :h syntax, and 'guifontwide' keeps its own size.
+func TestGVimSyntaxAndWideSize(t *testing.T) {
+	a, err := NewSet("Courier 10 Pitch:h16", "", 96, 0)
+	if err != nil {
+		t.Skip(err)
+	}
+	defer a.Close()
+	b, err := NewSet("Courier 10 Pitch 16", "", 96, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	if a.CellW != b.CellW || a.CellH != b.CellH || b.Size() != 16 {
+		t.Errorf(":h16 cell %dx%d, GTK syntax cell %dx%d size %v", a.CellW, a.CellH, b.CellW, b.CellH, b.Size())
+	}
+
+	big, err := NewSet("Courier 10 Pitch 16", "IPAGothic 16", 96, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer big.Close()
+	small, err := NewSet("Courier 10 Pitch 16", "IPAGothic 10", 96, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer small.Close()
+	gb, gs := big.Glyph("漢", 0, 2), small.Glyph("漢", 0, 2)
+	if gb.Empty() || gs.Empty() {
+		t.Skip("no IPAGothic")
+	}
+	if gs.H >= gb.H {
+		t.Errorf("guifontwide size ignored: 10pt glyph %dpx tall, 16pt %dpx", gs.H, gb.H)
+	}
+	if big.CellW != small.CellW || big.CellH != small.CellH {
+		t.Error("guifontwide size changed the cell size")
 	}
 }

@@ -22,16 +22,29 @@ type Spec struct {
 // options follow a colon. Only :h<size> is used; other options such as :b
 // are accepted and ignored because Neovim highlights choose bold/italic.
 // The size may be given on any entry and applies to all of them.
+//
+// GVim's GTK syntax, "Family Name 16" with the size as the last word, is
+// accepted too, so one 'guifont' line works in both GVim and ng.
 func ParseSpec(s string) Spec {
 	var spec Spec
 	for _, item := range splitEscaped(s, ',') {
 		parts := splitEscaped(item, ':')
 		name := strings.TrimSpace(parts[0])
+		hasH := false
 		for _, opt := range parts[1:] {
 			opt = strings.TrimSpace(opt)
 			if len(opt) > 1 && opt[0] == 'h' {
 				if f, err := strconv.ParseFloat(opt[1:], 64); err == nil && f > 0 {
 					spec.Size = f
+					hasH = true
+				}
+			}
+		}
+		if !hasH {
+			if i := strings.LastIndexByte(name, ' '); i > 0 {
+				if f, err := strconv.ParseFloat(name[i+1:], 64); err == nil && f > 0 {
+					spec.Size = f
+					name = strings.TrimSpace(name[:i])
 				}
 			}
 		}

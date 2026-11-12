@@ -58,7 +58,10 @@ func Start(nvimPath string, args []string, onNotify rpc.NotificationHandler, onR
 		return nil, err
 	}
 	defer logFile.Close() // Neovim keeps its own descriptor
-	cmdArgs := append([]string{"--headless", "--listen", addr}, args...)
+	// g:ng is set with --cmd, before the user's config runs, so that
+	// "if exists('g:ng')" works in init.vim. (The bootstrap Lua sets it
+	// too, for servers ng did not start.)
+	cmdArgs := append([]string{"--headless", "--listen", addr, "--cmd", "let g:ng = 1"}, args...)
 	cmd := exec.Command(nvimPath, cmdArgs...)
 	cmd.Stdin = nil
 	cmd.Stdout = nil

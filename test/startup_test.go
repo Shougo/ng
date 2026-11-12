@@ -76,3 +76,16 @@ func TestAttachToBlockedServer(t *testing.T) {
 	}
 	h2.waitFor("screen after attach", func(s *screen.Screen) bool { return s.Width == 60 })
 }
+
+// init.vim must be able to detect ng: g:ng exists before the user's config
+// is read, although the UI attaches only afterwards.
+func TestGNgVisibleInConfig(t *testing.T) {
+	h := start(t, 40, 6, false, "--cmd", "let g:seen_ng = exists('g:ng')")
+	v, err := h.nv.Call("nvim_get_var", "seen_ng")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, ok := v.(int64); !ok || n != 1 {
+		t.Errorf("exists('g:ng') during startup = %#v, want 1", v)
+	}
+}
