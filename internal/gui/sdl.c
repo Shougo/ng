@@ -108,3 +108,10 @@ float ng_pixel_density(SDL_Window *w) {
 	float d = SDL_GetWindowPixelDensity(w);
 	return d > 0 ? d : 1.0f;
 }
+
+// Returns the clipboard text (free with SDL_free), or NULL.
+char *ng_clipboard_text(void) {
+	if (!SDL_HasClipboardText())
+		return NULL;
+	return SDL_GetClipboardText();
+}

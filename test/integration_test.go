@@ -238,3 +238,32 @@ func TestReattachAfterDisconnect(t *testing.T) {
 	}
 	h2.waitFor("text after reattach", func(s *screen.Screen) bool { return row(s, 0) == "keep me" })
 }
+
+// Ctrl+Shift+V sends the clipboard with nvim_paste: the text arrives as
+// is, in insert mode and on the command line, without mappings or
+// auto-indent getting in the way.
+func TestPaste(t *testing.T) {
+	h := start(t, 40, 6, false, "--cmd", "set autoindent", "--cmd", "inoremap x XXX")
+	h.input("i  ")
+	h.waitFor("insert mode", func(s *screen.Screen) bool { return s.ModeName == "insert" })
+	if err := h.nv.Paste("こんにちは x\r\nworld"); err != nil {
+		t.Fatal(err)
+	}
+	h.input("<Esc>")
+	h.waitFor("pasted text", func(s *screen.Screen) bool {
+		return row(s, 0) == "  こんにちは x" && row(s, 1) == "world"
+	})
+	h.input(":let g:p = '")
+	h.nv.Paste("pasted")
+	h.input("'<CR>")
+	for i := 0; i < 100; i++ {
+		if v, err := h.nv.Call("nvim_get_var", "p"); err == nil {
+			if v != "pasted" {
+				t.Errorf("g:p = %#v", v)
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Error("paste on the command line did not arrive")
+}

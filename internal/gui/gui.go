@@ -626,6 +626,12 @@ func (a *App) keyDown(e event) {
 		}
 		return
 	}
+	// Ctrl+Shift+V pastes the clipboard, as in terminal emulators.
+	if e.key < C.SDLK_SCANCODE_MASK && input.IsPaste(rune(e.key), m) {
+		a.paste()
+		a.suppressText = true
+		return
+	}
 	// Printable key with Ctrl/Alt/Super: SDL may or may not also send a
 	// text event for it, so the next text event is dropped.
 	if e.key < C.SDLK_SCANCODE_MASK {
@@ -634,6 +640,17 @@ func (a *App) keyDown(e event) {
 			a.suppressText = true
 		}
 	}
+}
+
+// paste sends the clipboard to Neovim with nvim_paste.
+func (a *App) paste() {
+	p := C.ng_clipboard_text()
+	if p == nil {
+		return
+	}
+	text := C.GoString(p)
+	C.SDL_free(unsafe.Pointer(p))
+	a.nv.Paste(text)
 }
 
 func (a *App) cellAt(x, y float32) (row, col int) {

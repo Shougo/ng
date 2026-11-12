@@ -147,6 +147,16 @@ func (n *Nvim) InputMouse(button, action, modifier string, row, col int) error {
 	return n.Notify("nvim_input_mouse", button, action, modifier, 0, row, col)
 }
 
+// Paste sends text like a terminal's bracketed paste: Neovim inserts it
+// as is in any mode, without triggering mappings or auto-indent. It does
+// not wait.
+func (n *Nvim) Paste(text string) error {
+	if text == "" {
+		return nil
+	}
+	return n.Notify("nvim_paste", text, true, -1)
+}
+
 // SetFocus tells Neovim whether the window has focus (FocusGained/Lost).
 func (n *Nvim) SetFocus(focused bool) error {
 	return n.Notify("nvim_ui_set_focus", focused)

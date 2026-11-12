@@ -62,3 +62,22 @@ func TestMouseModifier(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+func TestIsPaste(t *testing.T) {
+	cases := []struct {
+		ch   rune
+		m    Mod
+		want bool
+	}{
+		{'v', ModCtrl | ModShift, true},
+		{'V', ModCtrl | ModShift, true},
+		{'v', ModCtrl, false}, // <C-v> stays Neovim's
+		{'v', ModCtrl | ModShift | ModAlt, false},
+		{'c', ModCtrl | ModShift, false},
+	}
+	for _, c := range cases {
+		if got := IsPaste(c.ch, c.m); got != c.want {
+			t.Errorf("IsPaste(%q,%d)=%v", c.ch, c.m, got)
+		}
+	}
+}

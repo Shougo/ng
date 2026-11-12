@@ -60,6 +60,10 @@ declined.
   and command line arguments only.
 - Windows and macOS. Other GUIs cover them.
 - Cursor blinking
+- Clipboard integration beyond what a terminal does: yank and put use
+  Neovim's own clipboard provider (`"+y`, `"+p`). Like a terminal, ng
+  pastes the clipboard with **Ctrl+Shift+V** (as a bracketed paste, via
+  `nvim_paste`).
 
 ## Planned
 

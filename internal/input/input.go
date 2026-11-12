@@ -150,3 +150,9 @@ func MouseModifier(m Mod) string {
 	}
 	return b.String()
 }
+
+// IsPaste reports whether the key is Ctrl+Shift+V, which pastes the
+// clipboard as in terminal emulators. ch is the unshifted character.
+func IsPaste(ch rune, m Mod) bool {
+	return (ch == 'v' || ch == 'V') && m&(ModCtrl|ModShift|ModAlt|ModSuper) == ModCtrl|ModShift
+}
