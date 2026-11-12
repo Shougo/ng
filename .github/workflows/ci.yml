@@ -86,3 +86,33 @@ jobs:
         run: |
           go build -o ng ./cmd/ng
           ./ng --version
+
+  # Debian: SDL3 is packaged since trixie (Ubuntu uses the same packages).
+  debian:
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    steps:
+      - name: Install packages
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates \
+            golang-go gcc libc6-dev pkg-config \
+            libsdl3-dev libfreetype-dev libfontconfig-dev fonts-dejavu-core
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Trust the workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Unit tests
+        run: go test ./...
+
+      - name: Build
+        run: |
+          go build -o ng ./cmd/ng
+          ./ng --version

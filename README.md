@@ -118,11 +118,16 @@ Install the libraries, then build with `go install`:
 sudo pacman -S sdl3 freetype2 fontconfig go
 # Fedora 42 or later
 sudo dnf install SDL3-devel freetype-devel fontconfig-devel golang gcc
+# Debian 13 (trixie) or later, Ubuntu 25.04 or later
+sudo apt install libsdl3-dev libfreetype-dev libfontconfig-dev golang-go gcc pkg-config
 
 go install github.com/Shougo/ng/cmd/ng@latest
 ```
 
-Both are built in CI every day. Other distributions work the same way if
+Arch, Fedora and Debian are built in CI every day. Ubuntu 24.04 LTS and Debian 12 do
+not package SDL3; there you would have to build SDL3 yourself. If the
+distribution's Go is older than the one ng needs, `go install` downloads
+a newer Go toolchain by itself. Other distributions work the same way if
 they package SDL3 (with `pkg-config` support); ng does not provide
 packages itself, but packagers are welcome (set the version with
 `-ldflags "-X main.version=..."`).
