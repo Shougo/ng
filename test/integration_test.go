@@ -56,7 +56,7 @@ func start(t *testing.T, cols, rows int, withPaint bool, args ...string) *harnes
 		h.fonts = f
 		h.img = paint.NewImagePainter(cols*f.CellW, rows*f.CellH)
 	}
-	nv, err := nvim.Start(bin, append([]string{"--clean", "-n", "-i", "NONE"}, args...), h.onNotify, nil)
+	nv, err := nvim.Start(bin, "", append([]string{"--clean", "-n", "-i", "NONE"}, args...), h.onNotify, nil)
 	if err != nil {
 		t.Skipf("cannot start nvim: %v", err)
 	}

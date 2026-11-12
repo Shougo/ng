@@ -56,12 +56,19 @@ func SocketPath() string {
 	return filepath.Join(dir, fmt.Sprintf("ng.%d.%s.sock", os.Getpid(), hex.EncodeToString(b[:])))
 }
 
-// Start launches nvimPath with args as an embedded server listening on a
-// new socket and connects to it. Neovim reads the user's config only after
-// Attach (see the package documentation).
-func Start(nvimPath string, args []string, onNotify rpc.NotificationHandler, onRequest rpc.RequestHandler) (*Nvim, error) {
-	addr := SocketPath()
-	logPath := strings.TrimSuffix(addr, ".sock") + ".log"
+// Start launches nvimPath with args as an embedded server and connects to
+// it. Neovim listens on addr, or on a new socket from SocketPath when addr
+// is empty. Neovim reads the user's config only after Attach (see the
+// package documentation).
+func Start(nvimPath, addr string, args []string, onNotify rpc.NotificationHandler, onRequest rpc.RequestHandler) (*Nvim, error) {
+	if addr == "" {
+		addr = SocketPath()
+	} else if err := prepareListen(addr); err != nil {
+		return nil, err
+	}
+	// The log is always ng's own file, also when addr is a TCP address or
+	// a path the user chose.
+	logPath := strings.TrimSuffix(SocketPath(), ".sock") + ".log"
 	// A file, not a pipe: Neovim must be able to write to its stderr even
 	// after ng is gone.
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
@@ -140,10 +147,41 @@ func Connect(addr string, onNotify rpc.NotificationHandler, onRequest rpc.Reques
 }
 
 func dial(addr string) (net.Conn, error) {
-	if strings.Contains(addr, "/") || !strings.Contains(addr, ":") {
+	if isUnixAddr(addr) {
 		return net.Dial("unix", addr)
 	}
 	return net.Dial("tcp", addr)
+}
+
+// isUnixAddr reports whether addr is a Unix socket path rather than
+// host:port, by the same rule Neovim uses for --listen.
+func isUnixAddr(addr string) bool {
+	return strings.Contains(addr, "/") || !strings.Contains(addr, ":")
+}
+
+// prepareListen checks a --listen address chosen by the user. A Neovim
+// already listening there is attached to with --server instead, never
+// replaced. A socket file left by a Neovim that is gone is removed, since
+// Neovim cannot listen on an existing path.
+func prepareListen(addr string) error {
+	if conn, err := dial(addr); err == nil {
+		conn.Close()
+		return fmt.Errorf("a Neovim is already listening on %s; attach to it with:\n  ng --server %s", addr, addr)
+	}
+	if !isUnixAddr(addr) {
+		return nil
+	}
+	fi, err := os.Lstat(addr)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if fi.Mode()&os.ModeSocket == 0 {
+		return fmt.Errorf("%s exists and is not a socket", addr)
+	}
+	return os.Remove(addr) // stale: nothing answered on it
 }
 
 // Attach registers ng as a UI. ng only uses ext_linegrid: every other

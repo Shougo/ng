@@ -68,7 +68,7 @@ func run() int {
 		if cfg.Server != "" {
 			return nvim.Connect(cfg.Server, onNotify, nil)
 		}
-		return nvim.Start(cfg.Nvim, cfg.NvimArgs, onNotify, nil)
+		return nvim.Start(cfg.Nvim, cfg.Listen, cfg.NvimArgs, onNotify, nil)
 	}
 
 	app := gui.New()

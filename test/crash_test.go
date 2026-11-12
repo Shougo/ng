@@ -23,7 +23,7 @@ func TestHelperProcess(t *testing.T) {
 	if os.Getenv("NG_TEST_HELPER") != "1" {
 		t.Skip("helper process")
 	}
-	nv, err := nvim.Start(nvimBin(), []string{"--clean", "-n", "-i", "NONE"}, nil, nil)
+	nv, err := nvim.Start(nvimBin(), "", []string{"--clean", "-n", "-i", "NONE"}, nil, nil)
 	if err != nil {
 		fmt.Println("ERROR", err)
 		os.Exit(1)

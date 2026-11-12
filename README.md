@@ -134,7 +134,7 @@ packages itself, but packagers are welcome (set the version with
 ## Usage
 
 ```sh
-ng [--nvim PATH] [--geometry COLSxROWS] [--] [nvim arguments...]
+ng [--nvim PATH] [--geometry COLSxROWS] [--listen ADDRESS] [--] [nvim arguments...]
 ng --server [ADDRESS]
 ```
 
@@ -144,6 +144,7 @@ ng --server [ADDRESS]
 | `--geometry COLSxROWS` | Grid size until the config sets 'lines'/'columns' (default: `80x24`) |
 | `--trace FILE` | Log redraws, keys and frames with timestamps (attach it to bug reports) |
 | `--version` | Print the version |
+| `--listen ADDRESS` | Start Neovim listening on this socket path or `host:port` instead of a new socket in `$XDG_RUNTIME_DIR` |
 | `--server [ADDRESS]` | Attach to a running Neovim server (socket path or `host:port`). Without an address, attach to the Neovim a crashed ng left behind |
 
 Long command lines are best kept in a shell alias.
@@ -194,6 +195,26 @@ nvim --listen /tmp/work.sock    # in a terminal, for example
 ng --server /tmp/work.sock      # the same session in a window
 ng --server localhost:6666      # TCP works too
 ```
+
+**Known addresses for scripts.** `--server` attaches to a Neovim that is
+running; `--listen` starts a new one on an address you choose, so that
+scripts can reach it. For example, to open files from a file manager in
+one ng window:
+
+```sh
+#!/bin/sh
+SOCK="$XDG_RUNTIME_DIR/nvim-files.sock"
+if nvim --server "$SOCK" --remote-expr 1 >/dev/null 2>&1; then
+    nvim --server "$SOCK" --remote "$@"   # the window already exists
+else
+    exec ng --listen "$SOCK" -- "$@"
+fi
+```
+
+ng refuses to start a second Neovim on an address where one is already
+listening (it tells you to use `ng --server`), and removes a socket file
+left by a Neovim that is gone. `ng --server` without an address only
+looks for ng's own sockets, not for addresses given to `--listen`.
 
 **Together with a terminal.** A terminal UI and ng can be attached to
 the same Neovim at once. Both show the same screen (see "The same screen

@@ -3,6 +3,7 @@
 package test
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -243,4 +244,26 @@ func TestSupportedVersion(t *testing.T) {
 		t.Errorf("Neovim %s in CI is older than nvim.MinVersion %s", v, nvim.MinVersion)
 	}
 	t.Logf("Neovim %s", v)
+}
+
+// ng --listen PATH: the Neovim ng starts listens where scripts expect it,
+// and starting a second one on the same path is refused.
+func TestListenAddress(t *testing.T) {
+	addr := filepath.Join(t.TempDir(), "work.sock")
+	nv, err := nvim.Start(nvimBin(), addr, []string{"--clean", "-n", "-i", "NONE"}, nil, nil)
+	if err != nil {
+		t.Skipf("cannot start nvim: %v", err)
+	}
+	go nv.Serve()
+	defer nv.Notify("nvim_command", "qall!")
+	if err := nv.Prepare(nvim.Bootstrap, 40, 6, nil); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := nv.Call("nvim_get_vvar", "servername"); err != nil || v != addr {
+		t.Errorf("v:servername = %#v, %v; want %s", v, err, addr)
+	}
+	if _, err := nvim.Start(nvimBin(), addr, nil, nil, nil); err == nil ||
+		!strings.Contains(err.Error(), "ng --server "+addr) {
+		t.Errorf("second start on the same address: %v", err)
+	}
 }

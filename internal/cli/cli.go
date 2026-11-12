@@ -17,6 +17,7 @@ const AutoServer = "\x00auto"
 type Config struct {
 	Nvim       string
 	Server     string // "", an address, or AutoServer
+	Listen     string // address for the Neovim ng starts, or "" for a new socket
 	Cols, Rows int
 	Version    bool
 	Trace      string // file for --trace, or ""
@@ -36,11 +37,14 @@ func Parse(args []string, out io.Writer) (*Config, error) {
 	fs.StringVar(&c.Server, "server", "",
 		"attach to a running Neovim server (socket path or host:port);\n"+
 			"without an address, attach to the one a crashed ng left behind")
+	fs.StringVar(&c.Listen, "listen", "",
+		"start Neovim listening on `ADDRESS` (socket path or host:port) instead of a\n"+
+			"new socket, so that scripts can reach it (nvim --server ADDRESS --remote ...)")
 	geometry := fs.String("geometry", "80x24", "initial grid size as COLSxROWS")
 	fs.BoolVar(&c.Version, "version", false, "print the version and exit")
 	fs.StringVar(&c.Trace, "trace", "", "write received redraw events and frame timing to `FILE` (for bug reports)")
 	fs.Usage = func() {
-		fmt.Fprintf(out, "usage: ng [options] [--] [nvim arguments...]\n       ng --server [ADDRESS]\n\n")
+		fmt.Fprintf(out, "usage: ng [options] [--listen ADDRESS] [--] [nvim arguments...]\n       ng --server [ADDRESS]\n\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(allowBareServer(args)); err != nil {
@@ -52,6 +56,9 @@ func Parse(args []string, out io.Writer) (*Config, error) {
 	c.NvimArgs = fs.Args()
 	if c.Server != "" && len(c.NvimArgs) > 0 {
 		return nil, errors.New("nvim arguments cannot be used with --server")
+	}
+	if c.Server != "" && c.Listen != "" {
+		return nil, errors.New("--listen starts a new Neovim and --server attaches to a running one; use only one")
 	}
 	return c, nil
 }

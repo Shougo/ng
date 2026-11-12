@@ -22,6 +22,8 @@ func TestParse(t *testing.T) {
 			Config{Nvim: "nvim", Server: AutoServer, Cols: 100, Rows: 30, NvimArgs: []string{}}},
 		{[]string{"--trace", "/tmp/t.log", "x.txt"},
 			Config{Nvim: "nvim", Trace: "/tmp/t.log", Cols: 80, Rows: 24, NvimArgs: []string{"x.txt"}}},
+		{[]string{"--listen", "/run/user/1000/thunar.sock", "--", "a.txt"},
+			Config{Nvim: "nvim", Listen: "/run/user/1000/thunar.sock", Cols: 80, Rows: 24, NvimArgs: []string{"a.txt"}}},
 		{[]string{"-server=localhost:6666"},
 			Config{Nvim: "nvim", Server: "localhost:6666", Cols: 80, Rows: 24, NvimArgs: []string{}}},
 	}
@@ -44,6 +46,7 @@ func TestParseErrors(t *testing.T) {
 		{"--server", "/tmp/x.sock", "file.txt"},
 		{"--server", "--", "file.txt"},
 		{"--nosuchflag"},
+		{"--listen", "/tmp/a.sock", "--server", "/tmp/b.sock"},
 	} {
 		if _, err := Parse(args, io.Discard); err == nil {
 			t.Errorf("Parse(%q) succeeded", args)
