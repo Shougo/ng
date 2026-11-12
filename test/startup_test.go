@@ -24,25 +24,18 @@ func TestStartupErrorIsShown(t *testing.T) {
 	h.input("<CR>ok<Esc>")
 }
 
-// Attaching to a Neovim that waits at a prompt must not freeze the GUI:
-// Prepare reports the blocked state at once and finishes after the prompt
-// is answered with keys sent meanwhile.
+// Attaching to a Neovim that waits at a blocking prompt must not freeze
+// the GUI: Prepare reports the blocked state at once and finishes after
+// the prompt is answered with keys sent meanwhile. getchar() blocks
+// (nvim_get_mode reports blocking=true); see also the input() case below.
 func TestAttachToBlockedServer(t *testing.T) {
 	h := start(t, 60, 8, false)
-	h.input(":let g:answer = input('ng-prompt> ')<CR>")
-	h.waitFor("prompt", func(s *screen.Screen) bool { return strings.Contains(s.Dump(), "ng-prompt>") })
+	h.input(":let g:answer = getchar()<CR>")
+	waitBlocking(t, h.nv)
 	addr := h.nv.Addr
-	h.nv.Close() // the GUI "crashes" while the prompt is open
+	h.nv.Close() // the GUI "crashes" while Neovim waits
 
-	h2 := &harness{t: t, scr: screen.New(60, 8), flushed: make(chan struct{}, 1)}
-	nv, err := nvim.Connect(addr, h2.onNotify, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h2.nv = nv
-	go nv.Serve()
-	defer nv.Notify("nvim_command", "qall!")
-
+	h2, nv := reconnect(t, addr)
 	blocked := make(chan struct{}, 1)
 	done := make(chan error, 1)
 	go func() {
@@ -50,11 +43,13 @@ func TestAttachToBlockedServer(t *testing.T) {
 	}()
 	select {
 	case <-blocked:
+	case err := <-done:
+		t.Fatalf("Prepare finished (%v) without reporting the blocked prompt", err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("blocked prompt not reported")
 	}
-	// Answer the prompt without seeing it, as the waiting message asks.
-	if err := nv.Input("yes<CR>"); err != nil {
+	// Answer without seeing the prompt, as the waiting message asks.
+	if err := nv.Input("y"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -63,17 +58,89 @@ func TestAttachToBlockedServer(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("attach did not finish after answering the prompt")
+		t.Fatal("attach did not finish after answering")
 	}
-	if v, err := nv.Call("nvim_get_var", "answer"); err != nil || v != "yes" {
-		t.Errorf("g:answer = %#v, %v", v, err)
+	// The key is processed asynchronously; wait for getchar() to return.
+	var answer any
+	for i := 0; i < 100; i++ {
+		var err error
+		if answer, err = nv.Call("nvim_get_var", "answer"); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	if v, err := nv.Call("nvim_get_var", "ng"); err != nil {
-		t.Errorf("bootstrap did not run: %v", err)
-	} else if n, ok := v.(int64); !ok || n != 1 {
-		t.Errorf("g:ng = %#v", v)
+	if answer != int64('y') {
+		t.Errorf("g:answer = %#v", answer)
+	}
+	if v, err := nv.Call("nvim_get_var", "ng"); err != nil || v != int64(1) {
+		t.Errorf("g:ng = %#v, %v", v, err)
 	}
 	h2.waitFor("screen after attach", func(s *screen.Screen) bool { return s.Width == 60 })
+}
+
+// An input() prompt runs in command line mode, where Neovim keeps
+// answering requests: attaching is not blocked at all, and the prompt is
+// shown in the new UI.
+func TestAttachDuringInputPrompt(t *testing.T) {
+	h := start(t, 60, 8, false)
+	h.input(":let g:answer = input('ng-prompt> ')<CR>")
+	h.waitFor("prompt", func(s *screen.Screen) bool { return strings.Contains(s.Dump(), "ng-prompt>") })
+	addr := h.nv.Addr
+	h.nv.Close()
+
+	h2, nv := reconnect(t, addr)
+	called := false
+	if err := nv.Prepare("vim.g.ng = 1", 60, 8, func() { called = true }); err != nil {
+		t.Fatal(err)
+	}
+	if called {
+		t.Error("input() reported as blocking")
+	}
+	h2.waitFor("prompt in the new UI", func(s *screen.Screen) bool { return strings.Contains(s.Dump(), "ng-prompt>") })
+	nv.Input("yes<CR>")
+	for i := 0; i < 100; i++ {
+		if v, err := nv.Call("nvim_get_var", "answer"); err == nil {
+			if v != "yes" {
+				t.Errorf("g:answer = %#v", v)
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Error("answer not received")
+}
+
+// waitBlocking waits until Neovim reports that it waits for input.
+func waitBlocking(t *testing.T, nv *nvim.Nvim) {
+	t.Helper()
+	for i := 0; i < 250; i++ {
+		if b, err := nv.Blocking(); err == nil && b {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("Neovim never reported blocking")
+}
+
+// reconnect attaches a second client to addr (without a UI yet).
+func reconnect(t *testing.T, addr string) (*harness, *nvim.Nvim) {
+	t.Helper()
+	h := &harness{t: t, scr: screen.New(60, 8), flushed: make(chan struct{}, 1)}
+	var nv *nvim.Nvim
+	var err error
+	for i := 0; i < 50; i++ {
+		if nv, err = nvim.Connect(addr, h.onNotify, nil); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.nv = nv
+	go nv.Serve()
+	t.Cleanup(func() { nv.Notify("nvim_command", "qall!") })
+	return h, nv
 }
 
 // init.vim must be able to detect ng: g:ng exists before the user's config

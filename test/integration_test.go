@@ -239,13 +239,12 @@ func TestReattachAfterDisconnect(t *testing.T) {
 	h2.waitFor("text after reattach", func(s *screen.Screen) bool { return row(s, 0) == "keep me" })
 }
 
-// Ctrl+Shift+V sends the clipboard with nvim_paste: the text arrives as
-// is, in insert mode and on the command line, without mappings or
-// auto-indent getting in the way.
+// Ctrl+Shift+V pastes the clipboard: the text arrives as is, in insert
+// mode and on the command line, without mappings or auto-indent getting in
+// the way, and never ahead of keys typed before it.
 func TestPaste(t *testing.T) {
 	h := start(t, 40, 6, false, "--cmd", "set autoindent", "--cmd", "inoremap x XXX")
 	h.input("i  ")
-	h.waitFor("insert mode", func(s *screen.Screen) bool { return s.ModeName == "insert" })
 	if err := h.nv.Paste("こんにちは x\r\nworld"); err != nil {
 		t.Fatal(err)
 	}
@@ -253,8 +252,12 @@ func TestPaste(t *testing.T) {
 	h.waitFor("pasted text", func(s *screen.Screen) bool {
 		return row(s, 0) == "  こんにちは x" && row(s, 1) == "world"
 	})
+	// Keys and paste sent back to back, as when typing fast: the paste
+	// must land on the command line opened by the keys before it.
 	h.input(":let g:p = '")
-	h.nv.Paste("pasted")
+	if err := h.nv.Paste("pasted"); err != nil {
+		t.Fatal(err)
+	}
 	h.input("'<CR>")
 	for i := 0; i < 100; i++ {
 		if v, err := h.nv.Call("nvim_get_var", "p"); err == nil {

@@ -644,7 +644,8 @@ func (a *App) paste() {
 	}
 	text := C.GoString(p)
 	C.SDL_free(unsafe.Pointer(p))
-	a.nv.Paste(text)
+	// Paste waits for Neovim to store the text; never block the window.
+	go a.nv.Paste(text)
 }
 
 func (a *App) cellAt(x, y float32) (row, col int) {

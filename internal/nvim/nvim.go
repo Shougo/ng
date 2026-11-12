@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -174,15 +175,30 @@ func (n *Nvim) InputMouse(button, action, modifier string, row, col int) error {
 	return n.Notify("nvim_input_mouse", button, action, modifier, 0, row, col)
 }
 
-// Paste sends text like a terminal's bracketed paste: Neovim inserts it
-// as is in any mode, without triggering mappings or auto-indent. It does
-// not wait.
+// Paste inserts text as a terminal's bracketed paste does: as is, in any
+// mode, without mappings or auto-indent (it uses vim.paste(), like
+// nvim_paste).
+//
+// It must not overtake keys typed before it. nvim_input only queues keys,
+// while a direct nvim_paste request would run as soon as it arrives, so
+// the text is stored in a variable first and the paste itself goes
+// through the input queue as a <Cmd> key. Paste waits for Neovim to store
+// the text; call it from a goroutine.
 func (n *Nvim) Paste(text string) error {
 	if text == "" {
 		return nil
 	}
-	return n.Notify("nvim_paste", text, true, -1)
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	name := fmt.Sprintf("ng_paste_%d", pasteSeq.Add(1))
+	if _, err := n.Call("nvim_set_var", name, text); err != nil {
+		return err
+	}
+	return n.Input(fmt.Sprintf("<Cmd>lua local k = '%s' local t = vim.g[k] vim.g[k] = nil "+
+		"vim.paste(vim.split(t, '\\n', { plain = true }), -1)<CR>", name))
 }
+
+var pasteSeq atomic.Int64
 
 // SetFocus tells Neovim whether the window has focus (FocusGained/Lost).
 func (n *Nvim) SetFocus(focused bool) error {
