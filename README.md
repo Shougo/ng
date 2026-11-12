@@ -177,8 +177,13 @@ set guifontwide=Noto\ Sans\ Mono\ CJK\ JP\ 14
 
 'lines' and 'columns' size the window, in your config and with `:set`
 later, and the window keeps them when 'guifont' changes. A tiling window
-manager decides window sizes itself; then the grid follows the window
-instead. `--geometry` only sets the size used before your config runs.
+manager (sway, i3, ...) decides window sizes itself: when ng sees that
+the window did not get the size it asked for, it stops resizing the
+window and fits 'lines' and 'columns' to the window instead, as GVim
+ends up doing. (On sway, resizing a tiled window would only shrink the
+drawing surface inside the tile.) This lasts until ng restarts, also if
+the window is made floating later. `--geometry` only sets the size used
+before your config runs.
 
 ng reads fonts with FreeType, so the Type 1 "Courier 10 Pitch" works
 directly; no conversion to OpenType is needed. The size is converted to

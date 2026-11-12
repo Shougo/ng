@@ -72,6 +72,8 @@ type App struct {
 	title      string
 	drawn      bool      // painted since the last present
 	settleAt   time.Time // when to fit the grid to the window, if set
+	reqW, reqH int       // window size last asked for, in pixels (0: none)
+	wmSized    bool      // the window manager overrides ng's window sizes
 
 	verts []C.SDL_Vertex
 	idx   []C.int
@@ -508,6 +510,15 @@ func (a *App) resetAtlas() {
 // cols x rows, then fits the grid to whatever size the window really got
 // (tiling window managers such as i3 decide the size themselves).
 func (a *App) resizeWindowToGrid(cols, rows int) {
+	if a.shown && a.wmSized {
+		// The window manager decides the size (tiling): asking would only
+		// shrink the drawing surface inside the tile (shown as black on
+		// Wayland). Fit the grid to the window instead, as GVim ends up
+		// doing.
+		a.updatePixelSize(false)
+		return
+	}
+	a.reqW, a.reqH = cols*a.fonts.CellW, rows*a.fonts.CellH
 	d := float64(C.ng_pixel_density(a.win))
 	w := int(math.Ceil(float64(cols*a.fonts.CellW) / d))
 	h := int(math.Ceil(float64(rows*a.fonts.CellH) / d))
@@ -532,7 +543,7 @@ const settleDelay = 300 * time.Millisecond
 func (a *App) settle() {
 	a.settleAt = time.Time{}
 	a.mark("window size settled")
-	a.updatePixelSize()
+	a.updatePixelSize(true)
 	a.paintDirty()
 }
 
@@ -554,19 +565,34 @@ func (a *App) show() {
 	a.resizeWindowToGrid(a.scr.Width, a.scr.Height)
 	C.SDL_ShowWindow(a.win)
 	a.shown = true
-	// A hidden window takes the requested size at once, so this reads the
-	// size the window manager gave on showing (a tiling one decides).
-	a.updatePixelSize()
+	// A hidden window takes the requested size at once; the size the
+	// window manager decides (a tiling one) arrives as an event, which
+	// also tells whether it overrides ng's sizes.
+	a.updatePixelSize(false)
+	// Resolve the size request within settleDelay even if no event comes
+	// (the window got exactly that size), so that a later resize by the
+	// user is not mistaken for the answer to it.
+	a.settleAt = time.Now().Add(settleDelay)
 	a.mark("window shown")
 }
 
 // updatePixelSize reads the drawable size and resizes the grid to fit.
-func (a *App) updatePixelSize() {
+// answer is true when the size is the window manager's answer to a resize
+// request (an event, or the settle timeout): if it differs from what ng
+// asked for, the window manager decides window sizes from now on.
+func (a *App) updatePixelSize(answer bool) {
 	var w, h C.int
 	C.SDL_GetWindowSizeInPixels(a.win, &w, &h)
 	a.pixW, a.pixH = int(w), int(h)
 	if a.fonts == nil || !a.shown {
 		return
+	}
+	if answer && a.reqW > 0 {
+		if !a.wmSized && overridden(a.reqW, a.reqH, a.pixW, a.pixH, a.fonts.CellW, a.fonts.CellH) {
+			a.wmSized = true
+			a.mark("window manager decides the window size")
+		}
+		a.reqW, a.reqH = 0, 0
 	}
 	a.gridCols = max(1, a.pixW/a.fonts.CellW)
 	a.gridRows = max(1, a.pixH/a.fonts.CellH)
@@ -696,13 +722,13 @@ func (a *App) handle(e event) bool {
 		a.nv.Command("confirm qall")
 	case C.SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
 		a.settleAt = time.Time{}
-		a.updatePixelSize()
+		a.updatePixelSize(true)
 		a.paintDirty()
 		return true
 	case C.SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
 		if err := a.loadFonts(a.scr.OptionString("guifont"), a.scr.OptionString("guifontwide"),
 			a.scr.OptionInt("linespace")); err == nil {
-			a.updatePixelSize()
+			a.updatePixelSize(false)
 			a.paintDirty()
 		}
 		return true
