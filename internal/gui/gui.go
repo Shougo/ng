@@ -32,7 +32,7 @@ const atlasSize = 2048
 
 // bootstrap runs in Neovim before the UI attaches. ng installs nothing on
 // the runtimepath; everything it needs is sent here.
-const bootstrap = `vim.g.ng = 1`
+const bootstrap = nvim.Bootstrap
 
 // Options configure Run.
 type Options struct {

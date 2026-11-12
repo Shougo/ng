@@ -68,7 +68,8 @@ func start(t *testing.T, cols, rows int, withPaint bool, args ...string) *harnes
 			nv.Proc.Kill()
 		}
 	})
-	if err := nv.Attach(cols, rows); err != nil {
+	// The same startup path as the GUI: bootstrap Lua, then attach.
+	if err := nv.Prepare(nvim.Bootstrap, cols, rows, nil); err != nil {
 		t.Fatal(err)
 	}
 	return h

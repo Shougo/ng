@@ -179,11 +179,14 @@ func (n *Nvim) InputMouse(button, action, modifier string, row, col int) error {
 // mode, without mappings or auto-indent (it uses vim.paste(), like
 // nvim_paste).
 //
-// It must not overtake keys typed before it. nvim_input only queues keys,
-// while a direct nvim_paste request would run as soon as it arrives, so
-// the text is stored in a variable first and the paste itself goes
-// through the input queue as a <Cmd> key. Paste waits for Neovim to store
-// the text; call it from a goroutine.
+// It must not overtake keys typed before it, nor fall behind keys typed
+// after it. nvim_input only queues keys, while a direct nvim_paste request
+// runs as soon as it arrives, so the text is stored in a variable first
+// and the paste itself goes through the input queue as a <Cmd> key. On
+// the command line vim.paste() would queue the text again (behind later
+// keys), so ng inserts the first line at the cursor with setcmdline()
+// instead, like vim.paste() pastes only one line there. Paste waits for
+// Neovim to store the text; call it from a goroutine.
 func (n *Nvim) Paste(text string) error {
 	if text == "" {
 		return nil
@@ -194,9 +197,27 @@ func (n *Nvim) Paste(text string) error {
 	if _, err := n.Call("nvim_set_var", name, text); err != nil {
 		return err
 	}
-	return n.Input(fmt.Sprintf("<Cmd>lua local k = '%s' local t = vim.g[k] vim.g[k] = nil "+
-		"vim.paste(vim.split(t, '\\n', { plain = true }), -1)<CR>", name))
+	return n.Input("<Cmd>lua require'ng_paste'('" + name + "')<CR>")
 }
+
+// pasteLua defines the function the <Cmd> key of Paste calls. It is
+// installed by the bootstrap Lua as package.loaded.ng_paste.
+const pasteLua = `
+package.loaded.ng_paste = function(name)
+  local text = vim.g[name]
+  vim.g[name] = nil
+  if not text then return end
+  local lines = vim.split(text, '\n', { plain = true })
+  if vim.fn.getcmdtype() ~= '' then
+    local line, pos = vim.fn.getcmdline(), vim.fn.getcmdpos()
+    vim.fn.setcmdline(line:sub(1, pos - 1) .. lines[1] .. line:sub(pos), pos + #lines[1])
+    return
+  end
+  vim.paste(lines, -1)
+end`
+
+// Bootstrap is the Lua ng runs in Neovim before attaching.
+const Bootstrap = "vim.g.ng = 1\n" + pasteLua
 
 var pasteSeq atomic.Int64
 
