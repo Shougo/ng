@@ -18,9 +18,11 @@ ng does not compete on features. It competes on **working**.
    fragments, not even in the middle of an input method conversion.
 2. **The screen is Neovim's screen.** No GUI-specific widgets and no
    reinterpretation: ng shows Neovim's grid, nothing more and nothing
-   less. What works in the terminal works in ng.
+   less. What works in the terminal works in ng (see "The same screen as
+   the terminal").
 3. **Your work survives ng.** Neovim runs in its own process. If ng
-   crashes, nothing is lost, and `ng --server` brings it back.
+   crashes, nothing is lost, and `ng --server` brings it back (see
+   "Reconnecting").
 4. **Faster than the terminal.** No escape sequences to encode and parse
    again, drawing only when Neovim's screen is complete, one draw call per
    frame and no animations. Freeing Neovim from the terminal must make it
@@ -49,12 +51,7 @@ declined.
 
 - Animations (cursor, scrolling)
 - Externalized UI (`ext_cmdline`, `ext_messages`, `ext_popupmenu`,
-  `ext_tabline`, `ext_multigrid`). Neovim draws all of its UI itself, exactly
-  as in a terminal. This means:
-  - ng and a terminal UI attached to the same Neovim look and behave the
-    same; with ext_* features only the subset all UIs support is active.
-  - UI improvements in Neovim itself (or in plugins such as ui2 or
-    noice.nvim) work unchanged and never conflict with the GUI.
+  `ext_tabline`, `ext_multigrid`): see "The same screen as the terminal".
 - GUI tab bars, sidebars, file trees, menus and toolbars
 - A configuration file. ng is configured with Neovim options, variables
   and command line arguments only.
@@ -65,12 +62,48 @@ declined.
   pastes the clipboard with **Ctrl+Shift+V** (as a bracketed paste, via
   `nvim_paste`).
 
+## The same screen as the terminal
+
+ng is a window for Neovim, so it shows exactly what Neovim in a terminal
+(the TUI) shows. This is a rule, not a goal:
+
+- **Neovim draws everything.** ng uses only `ext_linegrid`. The command
+  line, messages, popup menu, tab line, floating windows and borders are
+  drawn by Neovim into the grid, exactly as for a terminal. ng never
+  replaces them with widgets of its own (no `ext_cmdline`,
+  `ext_messages`, `ext_popupmenu`, `ext_tabline`, `ext_multigrid`).
+- **Neovim starts the same way.** Neovim reads your config after ng's UI
+  has attached, as with the TUI, so plugins that look at the UI while
+  starting (`vim._core.ui2`, anything using `nvim_list_uis()`, `&lines`
+  or `&columns`) behave the same.
+- **It is tested.** Integration tests compare ng's screen with Neovim's
+  own idea of the screen (`screenstring()`) cell by cell, after editing,
+  scrolling, splitting and command line completion, against Neovim stable
+  and nightly every day.
+
+What follows from it:
+
+- UI improvements in Neovim itself or in plugins (ui2, noice.nvim, ...)
+  work in ng unchanged, and never conflict with the GUI.
+- A terminal UI and ng attached to the same Neovim show the same screen.
+  (With `ext_*` features, Neovim enables only what every attached UI
+  supports, so GUIs that rely on them change their look depending on what
+  else is attached.)
+- When ng and the terminal differ, it is a bug in ng. Please report it.
+
+ng differs from a terminal only where a window can do better without
+changing what Neovim shows: how glyphs are rendered (fonts, fallback,
+fitting into cells), input methods, Ctrl+Shift+V pasting, and, later,
+images through `vim.ui.img`.
+
 ## Planned
 
+- **Input methods (IME).** Everything a terminal offers with Fcitx 5 or
+  IBus, done properly: the preedit text drawn at the cursor with ng's
+  own CJK rendering, and the candidate window placed at the cursor. On
+  Linux, GUIs that handle input methods well are rare; ng should be one.
 - Images through Neovim's official `vim.ui.img` API (not a GUI-specific
   API): plugins that use it will show images in ng and in kitty alike.
-- Input method support for those who do not use a Neovim-side input
-  method.
 
 ## Requirements
 
@@ -133,19 +166,41 @@ Errors in your startup files are shown in the window with the usual
 Neovim on its main thread: if Neovim is blocked at a prompt when ng
 attaches, the window says so and the keys you type answer the prompt.
 
-### When ng crashes
+### Reconnecting
 
-Neovim is not affected: it keeps every buffer, unsaved changes included.
+ng and Neovim are separate processes, connected through a socket. The
+window can go away and come back while Neovim, with every buffer and
+unsaved change, keeps running.
+
+**After a crash.** If ng crashes or is killed, Neovim is not affected.
 Run
 
 ```sh
 ng --server
 ```
 
-to attach to it again. ng looks for the Neovim servers it started
-(`$XDG_RUNTIME_DIR/ng.*.sock`) that have no window. If there are several,
-it lists them with their current file and number of modified buffers.
-Inside ng, `:echo v:servername` shows the address.
+to attach to it again. Without an address, ng looks for the Neovim
+servers it started (`$XDG_RUNTIME_DIR/ng.*.sock`) that have no window
+attached. If there is exactly one, ng attaches to it; if there are
+several, ng lists them with their current file and number of modified
+buffers and attaches to none. Inside ng, `:echo v:servername` shows the
+address.
+
+**To any Neovim server.** ng attaches to any Neovim that listens on a
+socket, not only to the ones it started:
+
+```sh
+nvim --listen /tmp/work.sock    # in a terminal, for example
+ng --server /tmp/work.sock      # the same session in a window
+ng --server localhost:6666      # TCP works too
+```
+
+**Together with a terminal.** A terminal UI and ng can be attached to
+the same Neovim at once. Both show the same screen (see "The same screen
+as the terminal" below); Neovim uses the smaller of the two sizes.
+
+Closing ng's window runs `:confirm qall` in Neovim, as closing a terminal
+running Neovim would; Neovim asks about unsaved buffers.
 
 ## Configuration
 
