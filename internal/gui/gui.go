@@ -863,7 +863,7 @@ func (a *App) handle(e event) bool {
 		return true
 	case C.SDL_EVENT_KEY_DOWN:
 		if a.trace != nil {
-			a.tracef(time.Now(), "key     0x%x mod=0x%x", e.key, e.mod)
+			a.tracef(time.Now(), "key     0x%x typed=%q mod=0x%x text-input=%v", e.key, rune(e.typed), e.mod, a.textInput)
 		}
 		a.keyDown(e)
 	case C.SDL_EVENT_TEXT_EDITING:
@@ -999,7 +999,7 @@ func (a *App) keyDown(e event) {
 	// With text input off (Normal mode, see updateTextInput) SDL sends no
 	// text events: the key's own character is the text.
 	if !a.textInput {
-		a.nv.Input(input.DirectText(rune(e.key), m))
+		a.nv.Input(input.DirectText(rune(e.typed), m))
 	}
 }
 

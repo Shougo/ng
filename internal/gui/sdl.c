@@ -13,6 +13,11 @@ void ng_flatten(const SDL_Event *e, ng_event *o) {
 	case SDL_EVENT_KEY_UP:
 		o->key = e->key.key;
 		o->mod = e->key.mod;
+		// e->key.key does not include Shift (Shift+; is ';'). Ask the
+		// keyboard layout what the key types with the modifiers that
+		// change characters.
+		o->typed = SDL_GetKeyFromScancode(e->key.scancode,
+			e->key.mod & (SDL_KMOD_SHIFT | SDL_KMOD_CAPS | SDL_KMOD_MODE), false);
 		o->repeat = e->key.repeat;
 		break;
 	case SDL_EVENT_TEXT_EDITING:

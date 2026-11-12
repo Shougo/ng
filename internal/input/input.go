@@ -176,8 +176,9 @@ func IMEWanted(mode string, insertOnly bool) bool {
 }
 
 // DirectText returns the text a key types when the input method is off,
-// or "" if the key types nothing by itself: ch is the key's character as
-// SDL reports it (already shifted), m the modifiers. Keys with Ctrl, Alt
+// or "" if the key types nothing by itself: ch is the character the key
+// types with Shift, CapsLock and AltGr applied (SDL_GetKeyFromScancode;
+// the keycode in SDL key events does not include Shift), m the modifiers. Keys with Ctrl, Alt
 // or Super are chords (ChordKey) and special keys go through SpecialKey.
 func DirectText(ch rune, m Mod) string {
 	if m&(ModCtrl|ModAlt|ModSuper) != 0 || ch < 0x20 || ch == 0x7f || ch >= 0x40000000 {

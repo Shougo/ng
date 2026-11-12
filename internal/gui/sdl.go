@@ -26,6 +26,7 @@ func sdlError(what string) error {
 type event struct {
 	typ    uint32
 	key    uint32
+	typed  uint32 // character typed, Shift/CapsLock/AltGr applied
 	mod    uint16
 	repeat bool
 	text   string
@@ -43,6 +44,7 @@ func flatten(e *C.SDL_Event) event {
 	ev := event{
 		typ:        uint32(o._type),
 		key:        uint32(o.key),
+		typed:      uint32(o.typed),
 		mod:        uint16(o.mod),
 		repeat:     o.repeat != 0,
 		editStart:  int(o.edit_start),

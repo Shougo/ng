@@ -7,6 +7,7 @@
 typedef struct {
 	Uint32 type;
 	SDL_Keycode key;
+	SDL_Keycode typed; // the character the key types with Shift/CapsLock/AltGr applied
 	SDL_Keymod mod;
 	int repeat;
 	int edit_start;  // SDL_EVENT_TEXT_EDITING: cursor, in characters
