@@ -21,6 +21,7 @@ import (
 
 	"github.com/Shougo/ng/internal/atlas"
 	"github.com/Shougo/ng/internal/font"
+	"github.com/Shougo/ng/internal/frame"
 	"github.com/Shougo/ng/internal/input"
 	"github.com/Shougo/ng/internal/nvim"
 	"github.com/Shougo/ng/internal/paint"
@@ -223,17 +224,10 @@ func (a *App) showWaiting() {
 	a.present()
 }
 
-// Frame coalescing. Neovim sometimes sends several flushes for one
-// action (for example entering the command line with cmdheight=0 first
-// draws the command line, then moves the windows). A terminal shows only
-// the last of them because it reads them together; ng presenting each
-// flush at once made the intermediate screens flicker. After a flush, ng
-// waits until Neovim has been quiet for quietMs before presenting, but
-// never more than maxDelayMs, so typing stays well under a frame of
-// latency.
+// Frame coalescing: see package frame.
 const (
-	quietMs    = 2
-	maxDelayMs = 8
+	quietMs    = int(frame.Quiet / time.Millisecond)
+	maxDelayMs = frame.MaxDelay
 )
 
 func (a *App) loop() error {
@@ -247,8 +241,8 @@ func (a *App) loop() error {
 			return err
 		}
 		if a.drawn {
-			deadline := time.Now().Add(maxDelayMs * time.Millisecond)
-			for time.Now().Before(deadline) && C.ng_wait_timeout(&ev, quietMs) != 0 {
+			deadline := time.Now().Add(maxDelayMs)
+			for time.Now().Before(deadline) && C.ng_wait_timeout(&ev, C.int(quietMs)) != 0 {
 				p, closed, err := a.drain(&ev)
 				if err != nil || closed {
 					return err
