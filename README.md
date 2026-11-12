@@ -201,8 +201,30 @@ putting pixels on the screen.
 - **No extra dependencies.** SDL3 is called directly through cgo, without
   third-party Go bindings, and is packaged by the major distributions.
 
-The price is cgo (a C compiler and the SDL3 development files are needed
-to build) and, on GNOME Wayland, window decorations drawn by libdecor.
+The price on GNOME Wayland is window decorations drawn by libdecor.
+
+### Why cgo
+
+ng uses cgo on purpose, and not only for SDL3:
+
+- **Text rendering needs C libraries.** FreeType and fontconfig are what
+  let ng draw Type 1 and bitmap fonts, honour your fontconfig hinting and
+  antialiasing settings, and find fallback fonts the way the rest of the
+  desktop does. No pure Go library does all of that, and correct text is
+  ng's first promise.
+- **Avoiding cgo for SDL3 alone would gain little.** Loading SDL3 at run
+  time without cgo (for example with purego) removes the C compiler from
+  the build, but SDL3 is still needed at run time, and SDL's C unions and
+  callbacks become harder to use correctly.
+- **The usual costs of cgo do not apply to a Linux-only program.** Cross
+  compiling, static single-file binaries and C toolchains on Windows are
+  problems for multi-platform distribution. On Linux, a C compiler and the
+  development packages are one package-manager command away (see
+  [Requirements](#requirements)), and binaries link against the libraries
+  the distribution already ships.
+
+If ng ever had to support Windows or macOS, this decision would be
+revisited; it does not, so cgo stays.
 
 ## Development
 
