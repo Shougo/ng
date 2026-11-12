@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  # Run against Neovim nightly every day, so that UI protocol changes are
+  # noticed the day they land: the same early warning GVim gets from living
+  # in Vim's own repository.
+  schedule:
+    - cron: "17 21 * * *"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    strategy:
+      fail-fast: false
+      matrix:
+        nvim: [stable, nightly]
+    steps:
+      - name: Install packages
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git go gcc pkgconf sdl3 freetype2 fontconfig curl tar \
+            ttf-dejavu otf-ipafont xorg-fonts-type1
+
+      - uses: actions/checkout@v4
+
+      - name: Install Neovim ${{ matrix.nvim }}
+        run: |
+          curl -fsSL -o /tmp/nvim.tar.gz \
+            https://github.com/neovim/neovim/releases/download/${{ matrix.nvim }}/nvim-linux-x86_64.tar.gz
+          tar -C /opt -xzf /tmp/nvim.tar.gz
+          /opt/nvim-linux-x86_64/bin/nvim --version | head -1
+
+      - name: Vet
+        run: go vet ./... && test -z "$(gofmt -l .)"
+
+      - name: Unit tests
+        run: go test -race ./...
+
+      - name: Integration tests
+        env:
+          NG_TEST_NVIM: /opt/nvim-linux-x86_64/bin/nvim
+        run: go test -race -tags integration -v ./test/
+
+      - name: Build
+        run: go build -o ng ./cmd/ng
