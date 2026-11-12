@@ -73,7 +73,17 @@ type App struct {
 
 	mu      sync.Mutex
 	batches [][]any
+	ctl     []func() // work posted to the main thread
 	closed  bool
+	fatal   error
+}
+
+// post runs f on the main thread. Safe to call from any goroutine.
+func (a *App) post(f func()) {
+	a.mu.Lock()
+	a.ctl = append(a.ctl, f)
+	a.mu.Unlock()
+	wake()
 }
 
 // New prepares an App for a connection that has not attached yet. Redraw
@@ -139,16 +149,55 @@ func (a *App) Run(nv *nvim.Nvim, opt Options) error {
 		a.nv.Serve()
 		a.markClosed()
 	}()
-	if _, err := a.nv.ExecLua(bootstrap); err != nil {
-		return fmt.Errorf("bootstrap: %w", err)
-	}
-	// The window manager may not have given the size we asked for, so
-	// attach with the grid that really fits.
-	if err := a.nv.Attach(a.gridCols, a.gridRows); err != nil {
-		return fmt.Errorf("nvim_ui_attach: %w", err)
+	// Attaching may wait for Neovim (see nvim.Prepare), so it runs on its
+	// own goroutine and the window stays responsive: keys typed meanwhile
+	// reach Neovim and can answer the prompt it is waiting at. The window
+	// manager may not have given the size we asked for, so attach with the
+	// grid that really fits.
+	cols, rows := a.gridCols, a.gridRows
+	go func() {
+		err := a.nv.Prepare(bootstrap, cols, rows, func() { a.post(a.showWaiting) })
+		a.post(func() { a.attachDone(err) })
+	}()
+	return a.loop()
+}
+
+// attachDone runs on the main thread when nvim.Prepare has finished.
+func (a *App) attachDone(err error) {
+	if err != nil {
+		a.fatal = fmt.Errorf("attach: %w", err)
+		return
 	}
 	a.attached = true
-	return a.loop()
+	if a.gridCols != a.scr.Width || a.gridRows != a.scr.Height {
+		a.nv.TryResize(a.gridCols, a.gridRows)
+	}
+	// Errors from init.lua etc. that a headless Neovim could not show.
+	a.nv.ReportStartupErrors()
+}
+
+// waitingMessage is drawn while Neovim is blocked at a prompt and has not
+// accepted the UI yet. Neovim's own screen replaces it after attaching.
+var waitingMessage = []string{
+	"ng: Neovim is waiting for input and cannot show its screen yet.",
+	"Type the answer to its prompt (for example <Enter> or <Esc>).",
+}
+
+func (a *App) showWaiting() {
+	if a.attached {
+		return
+	}
+	events := []any{[]any{"grid_clear", []any{int64(1)}}}
+	for i, line := range waitingMessage {
+		cells := []any{}
+		for _, r := range line {
+			cells = append(cells, []any{string(r)})
+		}
+		events = append(events, []any{"grid_line", []any{int64(1), int64(i), int64(0), cells, false}})
+	}
+	a.scr.HandleRedraw(events)
+	a.paintDirty()
+	a.present()
 }
 
 func (a *App) loop() error {
@@ -184,10 +233,16 @@ func (a *App) loop() error {
 // processRedraws applies queued redraw batches and paints at each flush.
 func (a *App) processRedraws() (drawn, closed bool, err error) {
 	a.mu.Lock()
-	batches := a.batches
-	a.batches = nil
+	batches, ctl := a.batches, a.ctl
+	a.batches, a.ctl = nil, nil
 	closed = a.closed
 	a.mu.Unlock()
+	for _, f := range ctl {
+		f()
+	}
+	if a.fatal != nil {
+		return drawn, closed, a.fatal
+	}
 	for _, b := range batches {
 		flush, err := a.scr.HandleRedraw(b)
 		if err != nil {

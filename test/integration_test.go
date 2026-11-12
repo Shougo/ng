@@ -60,6 +60,7 @@ func start(t *testing.T, cols, rows int, withPaint bool, args ...string) *harnes
 	h.nv = nv
 	go nv.Serve()
 	t.Cleanup(func() {
+		nv.StartupErrors() // removes the stderr log
 		nv.Notify("nvim_command", "qall!")
 		select {
 		case <-nv.Done():

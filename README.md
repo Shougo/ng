@@ -101,6 +101,11 @@ ng starts `nvim --headless --listen <socket>` in its own session and
 attaches to it. Closing the window runs `:confirm qall`, so Neovim asks
 about unsaved buffers.
 
+Errors in your startup files are shown after the window opens, with the
+usual "Press ENTER" prompt, just as in a terminal. ng never waits for
+Neovim on its main thread: if Neovim is blocked at a prompt when ng
+attaches, the window says so and the keys you type answer the prompt.
+
 ### When ng crashes
 
 Neovim is not affected: it keeps every buffer, unsaved changes included.

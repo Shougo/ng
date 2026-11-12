@@ -27,6 +27,11 @@ type Nvim struct {
 	*rpc.Client
 	Addr string
 	Proc *os.Process // nil when attached to an existing server
+
+	// LogPath receives Neovim's stderr when ng started it. A headless
+	// Neovim writes startup errors (e.g. from init.lua) there instead of
+	// showing them; ReportStartupErrors shows them once a UI is attached.
+	LogPath string
 }
 
 // SocketPath returns a fresh socket path in $XDG_RUNTIME_DIR (or the
@@ -45,15 +50,24 @@ func SocketPath() string {
 // new socket and connects to it.
 func Start(nvimPath string, args []string, onNotify rpc.NotificationHandler, onRequest rpc.RequestHandler) (*Nvim, error) {
 	addr := SocketPath()
+	logPath := strings.TrimSuffix(addr, ".sock") + ".log"
+	// A file, not a pipe: Neovim must be able to write to its stderr even
+	// after ng is gone.
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	defer logFile.Close() // Neovim keeps its own descriptor
 	cmdArgs := append([]string{"--headless", "--listen", addr}, args...)
 	cmd := exec.Command(nvimPath, cmdArgs...)
 	cmd.Stdin = nil
 	cmd.Stdout = nil
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = logFile
 	// A new session: closing the terminal ng was started from, or ng
 	// itself dying, must not take Neovim down.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
+		os.Remove(logPath)
 		return nil, fmt.Errorf("start %s: %w", nvimPath, err)
 	}
 	exited := make(chan error, 1)
@@ -63,11 +77,17 @@ func Start(nvimPath string, args []string, onNotify rpc.NotificationHandler, onR
 	for {
 		conn, err := dial(addr)
 		if err == nil {
-			n := &Nvim{Client: rpc.NewClient(conn, onNotify, onRequest), Addr: addr, Proc: cmd.Process}
+			n := &Nvim{Client: rpc.NewClient(conn, onNotify, onRequest),
+				Addr: addr, Proc: cmd.Process, LogPath: logPath}
 			return n, nil
 		}
 		select {
 		case err := <-exited:
+			out, _ := os.ReadFile(logPath)
+			os.Remove(logPath)
+			if msg := strings.TrimSpace(string(out)); msg != "" {
+				return nil, fmt.Errorf("%s exited before listening: %v\n%s", nvimPath, err, msg)
+			}
 			return nil, fmt.Errorf("%s exited before listening: %v", nvimPath, err)
 		case <-time.After(20 * time.Millisecond):
 		}
