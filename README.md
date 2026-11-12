@@ -9,20 +9,38 @@ The name has several meanings: **N**ew **G**UI, **N**eovim **G**UI,
 **N**eovim in **G**o, and "NG" (no good): most features are deliberately
 not implemented.
 
-## Goals
+## What ng promises
 
-- **It works.** Correct drawing comes before everything else. Double-width
-  characters, ambiguous-width characters and fallback fonts never leave
-  fragments on the screen.
-- **Fast and quiet.** No animations. ng draws only when Neovim says the
-  screen is complete (`flush`) and uses no CPU while idle.
+ng does not compete on features. It competes on **working**.
+
+1. **Text is drawn correctly.** Every glyph stays inside the cells Neovim
+   gives it. Double-width, ambiguous-width and fallback glyphs never leave
+   fragments, not even in the middle of an input method conversion.
+2. **The screen is Neovim's screen.** No GUI-specific widgets and no
+   reinterpretation: ng shows Neovim's grid, nothing more and nothing
+   less. What works in the terminal works in ng.
+3. **Your work survives ng.** Neovim runs in its own process. If ng
+   crashes, nothing is lost, and `ng --server` brings it back.
+4. **Faster than the terminal.** No escape sequences to encode and parse
+   again, drawing only when Neovim's screen is complete, one draw call per
+   frame and no animations. Freeing Neovim from the terminal must make it
+   faster, never slower.
+5. **Tested against Neovim every day.** Stable and nightly, every day.
+   A breakage is found the day it lands, and reported upstream when the
+   cause is in Neovim.
+6. **Small enough to be maintained for years.** The NG features below
+   keep it that way.
+
+Every promise is backed by tests or benchmarks in this repository. A
+promise that is not tested is a bug.
+
+Other goals:
+
 - **Beautiful text.** Fonts are rendered with FreeType using your
   fontconfig settings. Type 1 and bitmap fonts work too (Pango-based GUIs
   can no longer use them).
-- **Nothing is lost.** Neovim runs as a separate process. If ng crashes,
-  Neovim keeps running and `ng --server` attaches to it again.
-- **Maintainable by one person.** Linux only, small, and tested every day
-  against Neovim nightly.
+- **Linux only.** X11 and Wayland, including xrdp sessions through SDL's
+  software renderer. Other platforms are well served by other GUIs.
 
 ## NG features
 
