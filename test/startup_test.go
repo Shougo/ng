@@ -11,13 +11,12 @@ import (
 	"github.com/Shougo/ng/internal/screen"
 )
 
-// A headless Neovim cannot show errors from its startup files. ng must
-// show them after attaching, like Neovim in a terminal would.
+// Errors from startup files must be visible, like Neovim in a terminal
+// shows them: either Neovim shows them in the UI itself (it reads the
+// config after the UI attached), or ng shows what went to stderr.
 func TestStartupErrorIsShown(t *testing.T) {
 	h := start(t, 60, 8, false, "--cmd", "call NgNoSuchFunction()")
-	if !h.nv.ReportStartupErrors() {
-		t.Fatal("no startup errors captured")
-	}
+	h.nv.ReportStartupErrors()
 	h.waitFor("E117 on screen", func(s *screen.Screen) bool {
 		return strings.Contains(s.Dump(), "E117")
 	})
@@ -88,4 +87,61 @@ func TestGNgVisibleInConfig(t *testing.T) {
 	if n, ok := v.(int64); !ok || n != 1 {
 		t.Errorf("exists('g:ng') during startup = %#v, want 1", v)
 	}
+}
+
+// Like the TUI, Neovim must read the user's config only after ng's UI has
+// attached: plugins such as vim._core.ui2 and anything that looks at
+// nvim_list_uis(), &lines or &columns while starting depend on it.
+func TestConfigRunsWithUIAttached(t *testing.T) {
+	h := start(t, 61, 9, false,
+		"-c", "let g:c_uis = len(nvim_list_uis())",
+		"-c", "let g:c_size = [&columns, &lines]")
+	var uis, size any
+	for i := 0; i < 100; i++ {
+		var err error
+		if uis, err = h.nv.Call("nvim_get_var", "c_uis"); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	size, _ = h.nv.Call("nvim_get_var", "c_size")
+	if n, ok := uis.(int64); !ok || n != 1 {
+		t.Errorf("UIs while reading the config: %#v, want 1", uis)
+	}
+	if s, ok := size.([]any); !ok || len(s) != 2 || s[0] != int64(61) || s[1] != int64(9) {
+		t.Errorf("[&columns, &lines] while reading the config: %#v, want [61 9]", size)
+	}
+}
+
+// vim._core.ui2 enabled from the config must work in ng as in the TUI:
+// the command line it draws is highlighted.
+func TestUI2CommandLineIsHighlighted(t *testing.T) {
+	h := start(t, 60, 10, false,
+		"-c", "lua vim.g.ui2_ok = pcall(function() require('vim._core.ui2').enable({}) end)")
+	var ok any
+	for i := 0; i < 100; i++ {
+		var err error
+		if ok, err = h.nv.Call("nvim_get_var", "ui2_ok"); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if ok != true {
+		t.Skip("vim._core.ui2 is not available in this Neovim")
+	}
+	h.input(":echo 'ng'")
+	h.waitFor("highlighted command line", func(s *screen.Screen) bool {
+		for r := 0; r < s.Height; r++ {
+			if !strings.Contains(row(s, r), "echo 'ng'") {
+				continue
+			}
+			for c := 0; c < s.Width; c++ {
+				if s.Cell(r, c).Text == "e" && s.Cell(r, c).HL != 0 {
+					return true
+				}
+			}
+		}
+		return false
+	})
+	h.input("<Esc>")
 }

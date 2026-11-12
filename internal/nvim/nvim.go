@@ -1,10 +1,19 @@
 // Package nvim starts or connects to a Neovim server and wraps the API
 // calls ng uses.
 //
-// ng never embeds Neovim (--embed). It starts "nvim --headless --listen"
-// as a separate process in its own session and attaches to the socket, so
+// ng starts "nvim --embed --listen <socket>" as a separate process in its
+// own session and attaches to the socket.
+//
+// --embed makes Neovim wait until a UI has attached before it reads the
+// user's config, exactly like the builtin TUI. Things that look at the UI
+// while starting (vim._core.ui2, &lines/&columns, nvim_list_uis(), ...)
+// therefore behave as in a terminal. ("--headless --listen" would read the
+// config with no UI at all.)
+//
+// An embedded Neovim normally exits when its stdin closes. ng gives it a
+// pipe whose write end Neovim itself also holds, so stdin never closes:
 // if the GUI crashes Neovim keeps running with every unsaved buffer, and
-// "ng --server <socket>" attaches to it again.
+// "ng --server" attaches to it again.
 package nvim
 
 import (
@@ -28,9 +37,9 @@ type Nvim struct {
 	Addr string
 	Proc *os.Process // nil when attached to an existing server
 
-	// LogPath receives Neovim's stderr when ng started it. A headless
-	// Neovim writes startup errors (e.g. from init.lua) there instead of
-	// showing them; ReportStartupErrors shows them once a UI is attached.
+	// LogPath receives Neovim's stderr when ng started it. Errors Neovim
+	// cannot show in a UI (for example before one attached) end up there;
+	// ReportStartupErrors shows them once the UI is attached.
 	LogPath string
 }
 
@@ -46,8 +55,9 @@ func SocketPath() string {
 	return filepath.Join(dir, fmt.Sprintf("ng.%d.%s.sock", os.Getpid(), hex.EncodeToString(b[:])))
 }
 
-// Start launches nvimPath with args as a headless server listening on a
-// new socket and connects to it.
+// Start launches nvimPath with args as an embedded server listening on a
+// new socket and connects to it. Neovim reads the user's config only after
+// Attach (see the package documentation).
 func Start(nvimPath string, args []string, onNotify rpc.NotificationHandler, onRequest rpc.RequestHandler) (*Nvim, error) {
 	addr := SocketPath()
 	logPath := strings.TrimSuffix(addr, ".sock") + ".log"
@@ -61,18 +71,32 @@ func Start(nvimPath string, args []string, onNotify rpc.NotificationHandler, onR
 	// g:ng is set with --cmd, before the user's config runs, so that
 	// "if exists('g:ng')" works in init.vim. (The bootstrap Lua sets it
 	// too, for servers ng did not start.)
-	cmdArgs := append([]string{"--headless", "--listen", addr, "--cmd", "let g:ng = 1"}, args...)
+	cmdArgs := append([]string{"--embed", "--listen", addr, "--cmd", "let g:ng = 1"}, args...)
 	cmd := exec.Command(nvimPath, cmdArgs...)
-	cmd.Stdin = nil
-	cmd.Stdout = nil
+	// stdin is --embed's RPC channel, unused by ng. Neovim inherits the
+	// write end too (as fd 3), so the channel never sees EOF and Neovim
+	// does not exit when ng goes away.
+	stdinR, stdinW, err := os.Pipe()
+	if err != nil {
+		os.Remove(logPath)
+		return nil, err
+	}
+	defer stdinR.Close()
+	cmd.Stdin = stdinR
+	cmd.ExtraFiles = []*os.File{stdinW}
+	cmd.Stdout = nil // nothing is ever sent on the stdio channel
 	cmd.Stderr = logFile
 	// A new session: closing the terminal ng was started from, or ng
 	// itself dying, must not take Neovim down.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
+		stdinW.Close()
 		os.Remove(logPath)
 		return nil, fmt.Errorf("start %s: %w", nvimPath, err)
 	}
+	// ng keeps its copy of the write end open for its whole life; Neovim's
+	// own copy covers the time after ng is gone.
+	keepAlive = append(keepAlive, stdinW)
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
 
@@ -100,6 +124,9 @@ func Start(nvimPath string, args []string, onNotify rpc.NotificationHandler, onR
 		}
 	}
 }
+
+// keepAlive holds the write ends of embedded Neovims' stdin pipes.
+var keepAlive []*os.File
 
 // Connect attaches to an existing server. addr is a Unix socket path or
 // host:port.

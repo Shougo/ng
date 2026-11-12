@@ -101,12 +101,14 @@ ng --server [ADDRESS]
 
 Long command lines are best kept in a shell alias.
 
-ng starts `nvim --headless --listen <socket>` in its own session and
-attaches to it. Closing the window runs `:confirm qall`, so Neovim asks
+ng starts `nvim --embed --listen <socket>` in its own session and
+attaches to it. As with the builtin TUI, Neovim reads your config only
+after ng has attached, so plugins that look at the UI while starting
+(for example `vim._core.ui2`) work as in a terminal. Closing the window runs `:confirm qall`, so Neovim asks
 about unsaved buffers.
 
-Errors in your startup files are shown after the window opens, with the
-usual "Press ENTER" prompt, just as in a terminal. ng never waits for
+Errors in your startup files are shown in the window with the usual
+"Press ENTER" prompt, just as in a terminal. ng never waits for
 Neovim on its main thread: if Neovim is blocked at a prompt when ng
 attaches, the window says so and the keys you type answer the prompt.
 
