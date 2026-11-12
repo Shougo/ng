@@ -165,9 +165,25 @@ func (a *App) Run(connect Connector, opt Options) error {
 		a.traceStart = time.Now()
 	}
 	a.mark("run")
+	// Connect and attach right away, without waiting for the main thread
+	// (busy creating the window): an embedded Neovim reads the user's
+	// config only after a UI has attached, so attaching early lets the
+	// config run while SDL initializes.
 	go func() {
 		nv, err := connect(a.Enqueue)
-		a.post(func() { a.connected(nv, err) })
+		connectedAt := time.Now()
+		if err != nil {
+			a.post(func() { a.fatal = err })
+			return
+		}
+		go func() {
+			nv.Serve()
+			a.markClosed()
+		}()
+		a.post(func() { a.connected(nv, connectedAt) })
+		err = nv.Prepare(bootstrap, opt.Cols, opt.Rows, func() { a.post(a.showWaiting) })
+		attachedAt := time.Now()
+		a.post(func() { a.attachDone(err, attachedAt) })
 	}()
 	go font.Warmup()
 
@@ -175,7 +191,7 @@ func (a *App) Run(connect Connector, opt Options) error {
 		return sdlError("SDL_Init")
 	}
 	defer C.SDL_Quit()
-	a.mark("sdl initialized")
+	a.mark("sdl initialized (video driver " + C.GoString(C.SDL_GetCurrentVideoDriver()) + ")")
 
 	title := C.CString("ng")
 	a.win = C.ng_create_window(title, 800, 600)
@@ -184,6 +200,7 @@ func (a *App) Run(connect Connector, opt Options) error {
 		return sdlError("SDL_CreateWindow")
 	}
 	defer C.SDL_DestroyWindow(a.win)
+	a.mark("window created")
 	a.ren = C.SDL_CreateRenderer(a.win, nil)
 	if a.ren == nil {
 		return sdlError("SDL_CreateRenderer")
@@ -193,7 +210,7 @@ func (a *App) Run(connect Connector, opt Options) error {
 		return sdlError("atlas texture")
 	}
 	a.packer = atlas.NewPacker(atlasSize, atlasSize)
-	a.mark("renderer created")
+	a.mark("renderer created (" + C.GoString(C.SDL_GetRendererName(a.ren)) + ")")
 
 	a.scr = screen.New(opt.Cols, opt.Rows)
 	a.gridCols, a.gridRows = opt.Cols, opt.Rows
@@ -219,42 +236,29 @@ func (a *App) NvimDone() <-chan struct{} {
 }
 
 // mark records a startup milestone in the trace.
-func (a *App) mark(what string) {
+func (a *App) mark(what string) { a.markAt(time.Now(), what) }
+
+// markAt records a milestone that happened at t (on another goroutine).
+func (a *App) markAt(t time.Time, what string) {
 	if a.trace != nil {
-		a.tracef(time.Now(), "startup %s", what)
+		a.tracef(t, "startup %s", what)
 	}
 }
 
 // connected runs on the main thread once Neovim is reachable.
-func (a *App) connected(nv *nvim.Nvim, err error) {
-	if err != nil {
-		a.fatal = err
-		return
-	}
+func (a *App) connected(nv *nvim.Nvim, at time.Time) {
 	a.nv = nv
-	a.mark("nvim connected")
-	go func() {
-		nv.Serve()
-		a.markClosed()
-	}()
-	// Attaching may wait for Neovim (see nvim.Prepare), so it runs on its
-	// own goroutine and the window stays responsive: keys typed meanwhile
-	// reach Neovim and can answer the prompt it is waiting at.
-	cols, rows := a.gridCols, a.gridRows
-	go func() {
-		err := nv.Prepare(bootstrap, cols, rows, func() { a.post(a.showWaiting) })
-		a.post(func() { a.attachDone(err) })
-	}()
+	a.markAt(at, "nvim connected")
 }
 
 // attachDone runs on the main thread when nvim.Prepare has finished.
-func (a *App) attachDone(err error) {
+func (a *App) attachDone(err error, at time.Time) {
 	if err != nil {
 		a.fatal = fmt.Errorf("attach: %w", err)
 		return
 	}
 	a.attached = true
-	a.mark("attached")
+	a.markAt(at, "attached")
 	if a.shown && (a.gridCols != a.scr.Width || a.gridRows != a.scr.Height) {
 		a.nv.TryResize(a.gridCols, a.gridRows)
 	}
