@@ -97,6 +97,8 @@ ng --server [ADDRESS]
 | --- | --- |
 | `--nvim PATH` | Neovim executable to start (default: `nvim`) |
 | `--geometry COLSxROWS` | Initial grid size (default: `80x24`) |
+| `--trace FILE` | Log redraws, keys and frames with timestamps (attach it to bug reports) |
+| `--version` | Print the version |
 | `--server [ADDRESS]` | Attach to a running Neovim server (socket path or `host:port`). Without an address, attach to the Neovim a crashed ng left behind |
 
 Long command lines are best kept in a shell alias.

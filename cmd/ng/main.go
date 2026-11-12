@@ -14,6 +14,8 @@ import (
 	"github.com/Shougo/ng/internal/nvim"
 )
 
+// version may be set by packagers with -ldflags "-X main.version=...";
+// otherwise it comes from Go's build information (see cli.Version).
 var version = "dev"
 
 func main() {
@@ -30,7 +32,7 @@ func run() int {
 		return 2
 	}
 	if cfg.Version {
-		fmt.Println("ng", version)
+		fmt.Println(cli.VersionLine(version))
 		return 0
 	}
 
@@ -51,6 +53,7 @@ func run() int {
 			return 1
 		}
 		defer f.Close()
+		fmt.Fprintf(f, "# %s\n", cli.VersionLine(version))
 		opts.Trace = f
 	}
 
