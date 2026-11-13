@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=ng
+GenericName=Text Editor
+Comment=A minimal Neovim GUI
+Exec=ng -- %F
+Icon=ng
+Terminal=false
+Categories=Utility;TextEditor;
+Keywords=Text;Editor;Neovim;Vim;
+MimeType=text/plain;
+StartupNotify=false
+StartupWMClass=ng

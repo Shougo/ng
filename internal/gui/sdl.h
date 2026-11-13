@@ -35,5 +35,6 @@ SDL_Texture *ng_create_texture(SDL_Renderer *r, int access, int w, int h);
 bool ng_update(SDL_Texture *t, int x, int y, int w, int h, const void *pix, int pitch);
 bool ng_blit(SDL_Renderer *r, SDL_Texture *t, int w, int h);
 float ng_pixel_density(SDL_Window *w);
+bool ng_set_icon(SDL_Window *w, int width, int height, void *rgba);
 
 #endif

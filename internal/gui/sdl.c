@@ -150,3 +150,15 @@ char *ng_clipboard_text(void) {
 		return NULL;
 	return SDL_GetClipboardText();
 }
+
+// ng_set_icon sets the window icon from non-premultiplied RGBA pixels.
+// SDL copies them.
+bool ng_set_icon(SDL_Window *w, int width, int height, void *rgba) {
+	SDL_Surface *s = SDL_CreateSurfaceFrom(width, height, SDL_PIXELFORMAT_RGBA32, rgba, width * 4);
+	if (!s) {
+		return false;
+	}
+	bool ok = SDL_SetWindowIcon(w, s);
+	SDL_DestroySurface(s);
+	return ok;
+}

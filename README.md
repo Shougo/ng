@@ -1,5 +1,7 @@
 # ng
 
+<img src="assets/icons/hicolor/scalable/apps/ng.svg" alt="" width="96" align="right">
+
 **A new minimal Neovim GUI client written in Go.**
 
 ng is not a new editor built on Neovim. It is just a window for Neovim —
@@ -131,6 +133,22 @@ a newer Go toolchain by itself. Other distributions work the same way if
 they package SDL3 (with `pkg-config` support); ng does not provide
 packages itself, but packagers are welcome (set the version with
 `-ldflags "-X main.version=..."`).
+
+### Desktop entry and icon
+
+`go install` installs only the binary. To start ng from an application
+launcher and get its icon (Wayland compositors take the icon from the
+desktop entry; the app ID is `ng`), install them from a clone of the
+repository:
+
+```sh
+mkdir -p ~/.local/share/applications
+cp assets/ng.desktop ~/.local/share/applications/
+cp -r assets/icons ~/.local/share/
+```
+
+Packagers: install `assets/ng.desktop` to `/usr/share/applications` and
+`assets/icons/hicolor` to `/usr/share/icons/hicolor`.
 
 ## Usage
 
@@ -446,6 +464,21 @@ full repaint.
 | `internal/paint` | what to draw; image painter for tests |
 | `internal/input` | key and mouse notation |
 | `internal/gui` | SDL3 window, renderer and events |
+
+### The icon
+
+The source is `assets/icons/hicolor/scalable/apps/ng.svg`: a grid of
+cells with `ng`, the `g` drawn as the cursor cell (colors swapped). The
+glyphs are DejaVu Sans Mono Bold converted to outlines. After changing
+it, regenerate the PNG sizes and the window icon embedded in ng:
+
+```sh
+for s in 16 24 32 48 64 128 256 512; do
+  rsvg-convert -w $s -h $s assets/icons/hicolor/scalable/apps/ng.svg \
+    -o assets/icons/hicolor/${s}x${s}/apps/ng.png
+done
+cp assets/icons/hicolor/128x128/apps/ng.png internal/gui/icon.png
+```
 
 ## License
 

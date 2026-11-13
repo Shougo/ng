@@ -229,6 +229,7 @@ func (a *App) Run(connect Connector, opt Options) error {
 		return sdlError("SDL_CreateWindow")
 	}
 	defer C.SDL_DestroyWindow(a.win)
+	a.setIcon()
 	a.mark("window created")
 	a.ren = C.SDL_CreateRenderer(a.win, nil)
 	if a.ren == nil {
