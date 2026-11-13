@@ -489,6 +489,10 @@ the text that was on the screen.
 
 ## Development
 
+Investigations that took more than reading the code (logs, experiments,
+wrong first guesses) are recorded in [docs/](docs/README.md): why ng does
+what it does, and the commands that settled it.
+
 ```sh
 go test ./...                              # unit tests
 go test -tags integration ./test/          # needs nvim on $PATH
