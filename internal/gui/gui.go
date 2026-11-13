@@ -107,6 +107,8 @@ type App struct {
 	ctl     []func() // work posted to the main thread
 	closed  bool
 	fatal   error
+
+	restart *nvim.Restart // :restart is in progress (main thread)
 }
 
 // batch is one redraw notification and when it arrived.
@@ -198,22 +200,7 @@ func (a *App) Run(connect Connector, opt Options) error {
 	// (busy creating the window): an embedded Neovim reads the user's
 	// config only after a UI has attached, so attaching early lets the
 	// config run while SDL initializes.
-	go func() {
-		nv, err := connect(a.Enqueue)
-		connectedAt := time.Now()
-		if err != nil {
-			a.post(func() { a.fatal = err })
-			return
-		}
-		go func() {
-			nv.Serve()
-			a.markClosed()
-		}()
-		a.post(func() { a.connected(nv, connectedAt) })
-		err = nv.Prepare(bootstrap, opt.Cols, opt.Rows, func() { a.post(a.showWaiting) })
-		attachedAt := time.Now()
-		a.post(func() { a.attachDone(err, attachedAt) })
-	}()
+	a.session(connect, opt.Cols, opt.Rows, func() { a.post(a.showWaiting) }, nil)
 	go font.Warmup()
 
 	if !C.ng_init() {
@@ -251,6 +238,51 @@ func (a *App) Run(connect Connector, opt Options) error {
 			strings.ReplaceAll(latency.Summary(a.latency.Samples()), "\n", "\n# "))
 	}
 	return err
+}
+
+// session connects to Neovim and attaches ng's UI on a goroutine. setup,
+// if not nil, runs after connecting and before attaching.
+func (a *App) session(connect Connector, cols, rows int, onBlocked func(), setup func(*nvim.Nvim)) {
+	go func() {
+		nv, err := connect(a.Enqueue)
+		connectedAt := time.Now()
+		if err != nil {
+			a.post(func() { a.fatal = err })
+			return
+		}
+		go func() {
+			nv.Serve()
+			a.markClosed()
+		}()
+		a.post(func() { a.connected(nv, connectedAt) })
+		if setup != nil {
+			setup(nv)
+		}
+		err = nv.Prepare(bootstrap, cols, rows, onBlocked)
+		attachedAt := time.Now()
+		a.post(func() { a.attachDone(err, attachedAt) })
+	}()
+}
+
+// restartSession attaches to the server :restart started, keeping the
+// window: Neovim sent the "restart" event, then the old server exited.
+func (a *App) restartSession() {
+	r := a.restart
+	a.restart = nil
+	a.mu.Lock()
+	a.closed = false
+	a.mu.Unlock()
+	a.attached = false
+	a.vars = map[string]any{} // the bootstrap reports them again
+	a.updateTextInput()
+	a.tracef(time.Now(), "restart attach to %s", r.Addr)
+	connect := func(onNotify rpc.NotificationHandler) (*nvim.Nvim, error) {
+		return nvim.Connect(r.Addr, onNotify, nil)
+	}
+	a.session(connect, a.gridCols, a.gridRows, nil, func(nv *nvim.Nvim) {
+		// Older Neovim has no nvim_chan_set and sends no config.
+		_ = nv.RestoreChannel(r.ChanConfig)
+	})
 }
 
 // NvimAddr returns the address of the Neovim ng is connected to, or "".
@@ -456,6 +488,10 @@ func (a *App) processRedraws() (drawn, closed bool, err error) {
 		if a.trace != nil {
 			a.tracef(b.at, "redraw  %s", screen.Describe(b.params))
 		}
+		if r := nvim.ParseRestart(b.params); r != nil {
+			// The old server exits next; attach to r once it has.
+			a.restart = r
+		}
 		flush, err := a.scr.HandleRedraw(b.params)
 		if err != nil {
 			return drawn, closed, err
@@ -472,6 +508,10 @@ func (a *App) processRedraws() (drawn, closed bool, err error) {
 			a.paintDirty()
 			drawn = true
 		}
+	}
+	if closed && a.restart != nil {
+		a.restartSession()
+		closed = false
 	}
 	return drawn, closed, nil
 }

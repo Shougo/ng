@@ -38,6 +38,7 @@ type harness struct {
 	uiEntered chan struct{}
 	setSize   chan []any
 	vars      chan []any
+	restart   chan *nvim.Restart // nil: not watched
 }
 
 func start(t *testing.T, cols, rows int, withPaint bool, args ...string) *harness {
@@ -102,6 +103,9 @@ func (h *harness) onNotify(method string, params []any) {
 	}
 	if method != "redraw" {
 		return
+	}
+	if r := nvim.ParseRestart(params); r != nil && h.restart != nil {
+		h.restart <- r
 	}
 	h.mu.Lock()
 	flush, err := h.scr.HandleRedraw(params)
@@ -262,6 +266,56 @@ func TestReattachAfterDisconnect(t *testing.T) {
 		t.Fatal(err)
 	}
 	h2.waitFor("text after reattach", func(s *screen.Screen) bool { return row(s, 0) == "keep me" })
+}
+
+// :restart sends the "restart" event with the new server's address; after
+// the old server exits, ng attaches there the way the GUI does and keeps
+// its window.
+func TestRestart(t *testing.T) {
+	h := start(t, 40, 6, false)
+	h.restart = make(chan *nvim.Restart, 1)
+	h.waitFor("first screen", func(s *screen.Screen) bool { return row(s, 1) == "~" })
+	h.input(":restart<CR>")
+
+	var r *nvim.Restart
+	select {
+	case r = <-h.restart:
+	case <-time.After(10 * time.Second):
+		t.Fatal("no restart event")
+	}
+	if r.Addr == "" {
+		t.Fatalf("restart event without an address: %+v", r)
+	}
+	select {
+	case <-h.nv.Done():
+	case <-time.After(10 * time.Second):
+		t.Fatal("the old server did not exit")
+	}
+
+	h2 := &harness{t: t, scr: screen.New(40, 6), flushed: make(chan struct{}, 1),
+		uiEntered: make(chan struct{}, 1), setSize: make(chan []any, 16), vars: make(chan []any, 16)}
+	nv, err := nvim.Connect(r.Addr, h2.onNotify, nil)
+	if err != nil {
+		t.Fatalf("connect to the new server %s: %v", r.Addr, err)
+	}
+	h2.nv = nv
+	go nv.Serve()
+	t.Cleanup(func() {
+		nv.Notify("nvim_command", "qall!")
+		select {
+		case <-nv.Done():
+		case <-time.After(3 * time.Second):
+		}
+	})
+	if err := nv.RestoreChannel(r.ChanConfig); err != nil {
+		t.Logf("nvim_chan_set: %v (ignored, as in the GUI)", err)
+	}
+	if err := nv.Prepare(nvim.Bootstrap, 40, 6, nil); err != nil {
+		t.Fatal(err)
+	}
+	h2.waitFor("the new server's screen", func(s *screen.Screen) bool { return row(s, 1) == "~" })
+	h2.input("inew server<Esc>")
+	h2.waitFor("typing in the new server", func(s *screen.Screen) bool { return row(s, 0) == "new server" })
 }
 
 // Ctrl+Shift+V pastes the clipboard: the text arrives as is, in insert

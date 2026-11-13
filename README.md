@@ -206,6 +206,12 @@ several, ng lists them with their current file and number of modified
 buffers and attaches to none. Inside ng, `:echo v:servername` shows the
 address.
 
+**`:restart`.** Neovim's `:restart` (and `ZR`) starts a new server and
+exits the old one; ng attaches to the new server and keeps its window.
+The new server listens on an address Neovim chooses, so `ng --server`
+without an address does not find it after a crash: use the address from
+`:echo v:servername`.
+
 **To any Neovim server.** ng attaches to any Neovim that listens on a
 socket, not only to the ones it started:
 
