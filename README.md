@@ -312,8 +312,12 @@ to each input method. To turn Fcitx 5 off when leaving Insert mode, as
 GVim does, add to your config (it works in a terminal too):
 
 ```vim
-autocmd InsertLeave * call system('fcitx5-remote -c')
+autocmd InsertLeave * call jobstart(['fcitx5-remote', '-c'])
 ```
+
+`jobstart()` returns at once; `system()` would make every `<Esc>` wait
+for the command (tens of milliseconds). Pass a list so that no shell is
+started.
 
 Under X11 (including XWayland), input goes through XIM: typing and
 converting work, but the text being composed is shown in the input
