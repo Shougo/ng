@@ -23,6 +23,7 @@ type Sample struct {
 	Queue time.Duration // key event waiting in SDL's queue
 	Nvim  time.Duration // sent to Neovim until its flush arrived
 	Frame time.Duration // flush until present returned
+	Key   string        // the key, for traces
 }
 
 // Total is the latency from the key event to the present.
@@ -35,17 +36,21 @@ type Recorder struct {
 	event   time.Time // when the window system delivered the key
 	handled time.Time // when ng handled it (sent it to Neovim)
 	flush   time.Time // first flush after it, or zero
+	label   string
 	samples []Sample
 }
 
-// Key records a keystroke delivered at event and handled at handled.
-// While an earlier key is still waiting for its frame, that one is kept,
-// so a burst of typing is measured from its first key.
-func (r *Recorder) Key(event, handled time.Time) {
-	if r.pending && handled.Sub(r.handled) < stale {
-		return
+// Key records a keystroke delivered at event and handled at handled;
+// label names it in traces. A frame is measured from the last key before
+// Neovim's flush: keys that change nothing on screen (the start of a
+// mapping, an operator waiting for its motion) are answered together
+// with the key after them, and measuring from them would count the time
+// between the two keystrokes.
+func (r *Recorder) Key(event, handled time.Time, label string) {
+	if r.pending && !r.flush.IsZero() {
+		return // its frame is about to be presented
 	}
-	r.pending, r.event, r.handled, r.flush = true, event, handled, time.Time{}
+	r.pending, r.event, r.handled, r.flush, r.label = true, event, handled, time.Time{}, label
 }
 
 // Flush records a flush from Neovim.
@@ -71,6 +76,7 @@ func (r *Recorder) Present(at time.Time) (Sample, bool) {
 		Queue: max(0, r.handled.Sub(r.event)),
 		Nvim:  r.flush.Sub(r.handled),
 		Frame: at.Sub(r.flush),
+		Key:   r.label,
 	}
 	r.samples = append(r.samples, s)
 	return s, true

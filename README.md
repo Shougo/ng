@@ -371,6 +371,12 @@ answer was presented, and ends the file with a summary:
 #   frame             ...   (waiting for Neovim to finish, painting, presenting)
 ```
 
+Each frame is measured from the last key before Neovim answered: a key
+that changes nothing on screen (the start of a mapping, an operator
+waiting for its motion) is counted with the key after it. A slow `nvim`
+part is Neovim itself (autocommands, plugins) and is just as slow in a
+terminal; the trace names the key of each sample.
+
 This is the part ng and Neovim are responsible for; it does not include
 the compositor or the display. To compare the whole path with a
 terminal, use an external tool that types and watches the screen, such

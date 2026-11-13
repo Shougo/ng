@@ -722,8 +722,8 @@ func (a *App) present() {
 	C.SDL_RenderPresent(a.ren)
 	if a.trace != nil {
 		if l, ok := a.latency.Present(time.Now()); ok {
-			a.tracef(time.Now(), "latency %.2f ms (queue %.2f, nvim %.2f, frame %.2f)",
-				msf(l.Total()), msf(l.Queue), msf(l.Nvim), msf(l.Frame))
+			a.tracef(time.Now(), "latency %.2f ms for %s (queue %.2f, nvim %.2f, frame %.2f)",
+				msf(l.Total()), l.Key, msf(l.Queue), msf(l.Nvim), msf(l.Frame))
 		}
 		m := a.scr.CurrentMode()
 		a.tracef(time.Now(), "present cursor=(%d,%d) mode=%s busy=%v",
@@ -878,7 +878,7 @@ func (a *App) handle(e event) bool {
 	case C.SDL_EVENT_KEY_DOWN:
 		if a.trace != nil {
 			now := time.Now()
-			a.latency.Key(now.Add(-e.age), now)
+			a.latency.Key(now.Add(-e.age), now, fmt.Sprintf("%q", rune(e.typed)))
 			a.tracef(time.Now(), "key     0x%x typed=%q mod=0x%x text-input=%v", e.key, rune(e.typed), e.mod, a.textInput)
 		}
 		a.keyDown(e)
@@ -904,7 +904,7 @@ func (a *App) handle(e event) bool {
 		a.suppressText = false
 		if a.trace != nil {
 			now := time.Now()
-			a.latency.Key(now.Add(-e.age), now)
+			a.latency.Key(now.Add(-e.age), now, fmt.Sprintf("%q", e.text))
 			a.tracef(now, "commit  %q", e.text)
 		}
 		a.nv.Input(input.Text(e.text))
