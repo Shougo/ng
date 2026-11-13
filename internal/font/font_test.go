@@ -238,3 +238,37 @@ func skew(g *Glyph) float64 {
 	}
 	return center(0, g.H/3) - center(g.H-g.H/3, g.H)
 }
+
+// Nerd Font icons advance one cell but are drawn up to two cells wide.
+// Glyph shrinks them into their cell; Spill keeps their size over two.
+func TestWideSymbol(t *testing.T) {
+	s, err := NewSet("UDEV Gothic NF:h12", "", 96, 0)
+	if err != nil {
+		t.Skip(err)
+	}
+	defer s.Close()
+	gear := ""
+	g := s.Glyph(gear, 0, 1)
+	if g.Empty() {
+		t.Skip("font has no Nerd Font icons")
+	}
+	if !g.Wide {
+		t.Fatal("U+F013 not marked Wide")
+	}
+	checkFits(t, s, g, 1, "U+F013 in its cell")
+	sp := s.Spill(gear, 0)
+	checkFits(t, s, sp, 2, "U+F013 spilled")
+	if sp.W <= g.W || sp.X+sp.W <= s.CellW {
+		t.Errorf("spilled U+F013 (x %d w %d) is not wider than its cell (%d)", sp.X, sp.W, s.CellW)
+	}
+	for _, ch := range []string{"a", "W", "f"} {
+		for _, st := range []Style{0, Italic, Bold | Italic} {
+			if s.Glyph(ch, st, 1).Wide {
+				t.Errorf("%q (style %d) marked Wide", ch, st)
+			}
+			if s.Spill(ch, st) != s.Glyph(ch, st, 1) {
+				t.Errorf("Spill(%q) differs from Glyph for an ordinary letter", ch)
+			}
+		}
+	}
+}

@@ -182,3 +182,54 @@ func TestDecorationsStayInRow(t *testing.T) {
 		}
 	}
 }
+
+// A Nerd Font icon followed by a blank cell overflows into it, as in a
+// terminal; followed by text it is shrunk into its own cell.
+func TestWideSymbolOverflow(t *testing.T) {
+	f, err := font.NewSet("UDEV Gothic NF:h12", "", 96, 0)
+	if err != nil {
+		t.Skip(err)
+	}
+	defer f.Close()
+	if !f.Glyph("", 0, 1).Wide {
+		t.Skip("font has no wide Nerd Font icons")
+	}
+	s := screen.New(4, 2)
+	redraw(t, s,
+		[]any{"default_colors_set", []any{int64(0xffffff), int64(0x000000), int64(0xff0000), int64(0), int64(0)}},
+		gridLine(0, "", " ", "x", " "),
+		gridLine(1, "", "x", " ", " "))
+	p := paintAll(s, f)
+	dump(t, "wide_symbol", p)
+	ink := func(row, col int) int {
+		n := 0
+		for y := row * f.CellH; y < (row+1)*f.CellH; y++ {
+			for x := col * f.CellW; x < (col+1)*f.CellW; x++ {
+				if r, _, _, _ := p.Img.At(x, y).RGBA(); r > 0x8000 {
+					n++
+				}
+			}
+		}
+		return n
+	}
+	if ink(0, 1) == 0 {
+		t.Error("icon before a blank cell does not overflow into it")
+	}
+	// Row 1: the icon must stay in its cell; cell 1 holds only the "x".
+	s2 := screen.New(4, 1)
+	redraw(t, s2,
+		[]any{"default_colors_set", []any{int64(0xffffff), int64(0x000000), int64(0xff0000), int64(0), int64(0)}},
+		gridLine(0, " ", "x", " ", " "))
+	p2 := paintAll(s2, f)
+	xOnly := 0
+	for y := 0; y < f.CellH; y++ {
+		for x := f.CellW; x < 2*f.CellW; x++ {
+			if r, _, _, _ := p2.Img.At(x, y).RGBA(); r > 0x8000 {
+				xOnly++
+			}
+		}
+	}
+	if got := ink(1, 1); got != xOnly {
+		t.Errorf("icon before text spills into the text's cell (%d lit pixels, %d from the x alone)", got, xOnly)
+	}
+}

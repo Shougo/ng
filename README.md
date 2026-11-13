@@ -377,6 +377,16 @@ Every glyph is fitted into the cells Neovim gives it. If a character is
 drawn too small, give it the width you want with `setcellwidths()` or
 `'ambiwidth'`; ng follows Neovim's idea of character widths.
 
+Symbols that a font draws much wider than their single cell, such as
+Nerd Font icons, are the exception: like a terminal, ng lets one overflow
+into the next cell when that cell is blank (as in `<icon> name`), and
+shrinks it into its cell otherwise. The cursor on such an icon covers
+both cells.
+
+Bold and italic use the font's own bold and italic faces. Fonts without
+them, as most Japanese fonts are, are emboldened or slanted (as
+fontconfig asks).
+
 Hinting and antialiasing follow your fontconfig settings
 (`~/.config/fontconfig/fonts.conf`).
 

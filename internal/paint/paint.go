@@ -55,12 +55,33 @@ func Row(p Painter, s *screen.Screen, f *font.Set, row int) {
 		a := s.Attr(c.HL)
 		fg, _, _ := s.Colors(c.HL)
 		x := col * f.CellW
-		if g := f.Glyph(c.Text, styleOf(a), w); !g.Empty() {
+		if g := glyph(s, f, row, col, w, styleOf(a)); !g.Empty() {
 			p.DrawGlyph(g, x+g.X, y+g.Y, fg)
 		}
 		decorate(p, f, a, x, y, w*f.CellW, fg)
 	}
 }
+
+// glyph returns the bitmap for the cell at (row, col), w cells wide. A
+// one-cell symbol drawn wider than its cell (a Nerd Font icon) keeps its
+// own size and overflows into the next cell when that cell is blank, as in
+// a terminal; otherwise it is shrunk into its cell.
+func glyph(s *screen.Screen, f *font.Set, row, col, w int, style font.Style) *font.Glyph {
+	g, _ := spillGlyph(s, f, row, col, w, style)
+	return g
+}
+
+// spillGlyph is glyph, also reporting how many cells the bitmap covers.
+func spillGlyph(s *screen.Screen, f *font.Set, row, col, w int, style font.Style) (*font.Glyph, int) {
+	text := s.Cell(row, col).Text
+	g := f.Glyph(text, style, w)
+	if g.Wide && col+1 < s.Width && s.CellWidth(row, col+1) == 1 && blank(s.Cell(row, col+1).Text) {
+		return f.Spill(text, style), 2
+	}
+	return g, w
+}
+
+func blank(text string) bool { return text == "" || text == " " }
 
 // decorate draws underlines and strikethrough inside the cell box.
 func decorate(p Painter, f *font.Set, a screen.Attr, x, y, w int, fg screen.Color) {
@@ -150,9 +171,12 @@ func Cursor(p Painter, s *screen.Screen, f *font.Set, focused bool) {
 			p.FillRect(x+cw-1, y, 1, f.CellH, bg)
 			return
 		}
-		p.FillRect(x, y, cw, f.CellH, bg)
+		// A symbol overflowing into the next cell gets a cursor as wide as
+		// its drawing, so that none of it is hidden or half recolored.
 		a := s.Attr(c.HL)
-		if g := f.Glyph(c.Text, styleOf(a), w); !g.Empty() {
+		g, covered := spillGlyph(s, f, row, col, w, styleOf(a))
+		p.FillRect(x, y, covered*f.CellW, f.CellH, bg)
+		if !g.Empty() {
 			p.DrawGlyph(g, x+g.X, y+g.Y, fg)
 		}
 	}

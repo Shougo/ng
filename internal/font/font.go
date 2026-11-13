@@ -7,6 +7,12 @@
 // is wider or taller than its cells is scaled down and centered instead of
 // spilling into its neighbours. That keeps ambiguous-width characters and
 // fallback fonts from leaving fragments on the screen.
+//
+// The exception is a symbol whose drawing is much wider than its single
+// cell, as Nerd Font icons are (their advance is one cell, their ink up to
+// two). Glyph shrinks it into its cell and marks it Wide; Spill draws it
+// over two cells, the way terminals let it overflow, for use when the
+// next cell is blank.
 package font
 
 /*
@@ -184,6 +190,10 @@ type Glyph struct {
 	W, H   int
 	Stride int
 	Pix    []byte // W*H alpha values when Stride == W
+	// Wide marks a one-cell symbol drawn much wider than its cell (a Nerd
+	// Font icon), shrunk to fit; Spill has it at its own size over two
+	// cells.
+	Wide bool
 }
 
 // Empty reports whether the glyph has no pixels (for example a space).
@@ -212,6 +222,7 @@ type glyphKey struct {
 	text  string
 	style Style
 	cells int
+	spill bool
 }
 
 // Set is a configured group of fonts: the 'guifont' list, the optional
@@ -506,16 +517,44 @@ func (s *Set) faceFor(r rune, style Style, cells int) (f *face, primary bool) {
 // content of one grid cell: a base character optionally followed by
 // combining characters. The result is cached.
 func (s *Set) Glyph(text string, style Style, cells int) *Glyph {
-	k := glyphKey{text, style, cells}
+	return s.cached(glyphKey{text, style, cells, false})
+}
+
+// Spill returns a one-cell symbol that Glyph marked Wide at its own size,
+// drawn from its cell over the next one. Use it when the next cell is
+// blank. For any other text it returns Glyph(text, style, 1).
+func (s *Set) Spill(text string, style Style) *Glyph {
+	if !s.Glyph(text, style, 1).Wide {
+		return s.Glyph(text, style, 1)
+	}
+	return s.cached(glyphKey{text, style, 1, true})
+}
+
+func (s *Set) cached(k glyphKey) *Glyph {
 	if g, ok := s.glyphs[k]; ok {
 		return g
 	}
-	g := s.render(text, style, cells)
+	g := s.render(k.text, k.style, k.cells, k.spill)
 	s.glyphs[k] = g
 	return g
 }
 
-func (s *Set) render(text string, style Style, cells int) *Glyph {
+// wideInk is how much wider than its cell a one-cell glyph must be drawn
+// to count as a wide symbol. Letters that overhang a little (italic f,
+// W in some fonts) stay as they are.
+const wideInk = 1.25
+
+// extent is the horizontal box of a glyph at the current size, in pixels
+// from its origin: the advance, widened to cover ink that sticks out.
+func extent(f *face) (left, right float64) {
+	slot := C.ng_slot(f.ft)
+	adv := float64(slot.advance.x) / 64
+	inkL := float64(slot.metrics.horiBearingX) / 64
+	inkR := inkL + float64(slot.metrics.width)/64
+	return math.Min(0, inkL), math.Max(adv, inkR)
+}
+
+func (s *Set) render(text string, style Style, cells int, spill bool) *Glyph {
 	empty := &Glyph{}
 	base, _ := utf8.DecodeRuneInString(text)
 	if base == utf8.RuneError || base == ' ' || text == "" {
@@ -526,21 +565,26 @@ func (s *Set) render(text string, style Style, cells int) *Glyph {
 		return empty
 	}
 	availW := cells * s.CellW
+	if spill {
+		availW = 2 * s.CellW
+	}
 
 	// Measure at the configured size, then shrink if the glyph does not fit
 	// its cells. Glyphs from the primary font in a single cell are trusted
-	// so that their hinting is not disturbed.
-	scale := 1.0
-	if !primary || cells != 1 {
-		if err := s.setSize(f, f.base); err != nil {
-			return empty
-		}
-		gi := C.FT_Get_Char_Index(f.ft, C.FT_ULong(base))
-		if C.ng_ft_load(f.ft, gi, f.loadFlags, 0, 0) == 0 {
-			adv := float64(C.ng_slot(f.ft).advance.x) / 64
-			h := float64(C.ng_ascender(f.ft)-C.ng_descender(f.ft)) / 64
-			if adv > float64(availW) {
-				scale = math.Min(scale, float64(availW)/adv)
+	// so that their hinting is not disturbed, unless they are wide symbols.
+	if err := s.setSize(f, f.base); err != nil {
+		return empty
+	}
+	scale, wide := 1.0, false
+	boxL, boxR := 0.0, float64(s.CellW)
+	gi := C.FT_Get_Char_Index(f.ft, C.FT_ULong(base))
+	if C.ng_ft_load(f.ft, gi, f.loadFlags, 0, 0) == 0 {
+		boxL, boxR = extent(f)
+		wide = cells == 1 && boxR-boxL > wideInk*float64(s.CellW)
+		h := float64(C.ng_ascender(f.ft)-C.ng_descender(f.ft)) / 64
+		if !primary || cells != 1 || wide {
+			if w := boxR - boxL; w > float64(availW) {
+				scale = math.Min(scale, float64(availW)/w)
 			}
 			if h > float64(s.CellH) {
 				scale = math.Min(scale, float64(s.CellH)/h)
@@ -577,10 +621,16 @@ func (s *Set) render(text string, style Style, cells int) *Glyph {
 			continue
 		}
 		slot := C.ng_slot(f.ft)
-		if i == 0 && (!primary || cells != 1) {
-			// Center the advance width inside the cells.
-			adv := int(math.Round(float64(slot.advance.x) / 64))
-			originX = max(0, (availW-adv)/2)
+		if i == 0 {
+			switch {
+			case spill:
+				// From the cell's left edge, as a terminal draws it.
+				originX = max(0, int(math.Round(-boxL*scale)))
+			case !primary || cells != 1 || wide:
+				// Center the glyph's box inside the cells.
+				w := (boxR - boxL) * scale
+				originX = max(0, int(math.Round((float64(availW)-w)/2-boxL*scale)))
+			}
 		}
 		// Keep the font's own baseline when it fits; otherwise center the
 		// glyph's vertical extent in the cell.
@@ -596,7 +646,9 @@ func (s *Set) render(text string, style Style, cells int) *Glyph {
 		}
 		canvas.draw(&slot.bitmap, originX+int(slot.bitmap_left), baseline-int(slot.bitmap_top))
 	}
-	return canvas.trim()
+	g := canvas.trim()
+	g.Wide = wide && !spill
+	return g
 }
 
 // canvas accumulates coverage for one cell group, clipped to its bounds.
