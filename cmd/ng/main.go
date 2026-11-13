@@ -1,7 +1,7 @@
 // Command ng is a minimal Neovim GUI for Linux.
 //
-//	ng [--nvim PATH] [--geometry COLSxROWS] [--] [nvim arguments...]
-//	ng --server [ADDRESS]
+//	ng [-f] [--nvim PATH] [--geometry COLSxROWS] [--] [nvim arguments...]
+//	ng [-f] --server [ADDRESS]
 package main
 
 import (
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Shougo/ng/internal/cli"
+	"github.com/Shougo/ng/internal/detach"
 	"github.com/Shougo/ng/internal/gui"
 	"github.com/Shougo/ng/internal/nvim"
 	"github.com/Shougo/ng/internal/rpc"
@@ -28,6 +29,7 @@ func main() {
 }
 
 func run() int {
+	child := detach.Child()
 	cfg, err := cli.Parse(os.Args[1:], os.Stderr)
 	if errors.Is(err, cli.ErrHelp) {
 		return 0
@@ -41,6 +43,12 @@ func run() int {
 		return 0
 	}
 
+	// Like GVim: started from a terminal, give it back once the window is
+	// up. Arguments are checked first, so that their errors appear here.
+	if !child && !cfg.NoFork && detach.FromTerminal() {
+		return detach.Background(os.Stderr)
+	}
+
 	if cfg.Server == cli.AutoServer {
 		addr, err := pickServer()
 		if err != nil {
@@ -50,7 +58,7 @@ func run() int {
 		cfg.Server = addr
 	}
 
-	opts := gui.Options{Cols: cfg.Cols, Rows: cfg.Rows, Start: start}
+	opts := gui.Options{Cols: cfg.Cols, Rows: cfg.Rows, Start: start, OnShown: detach.Ready}
 	if cfg.Trace != "" {
 		f, err := os.Create(cfg.Trace)
 		if err != nil {

@@ -21,6 +21,7 @@ type Config struct {
 	Cols, Rows int
 	Version    bool
 	Trace      string // file for --trace, or ""
+	NoFork     bool   // -f, --nofork: stay in the foreground
 	NvimArgs   []string
 }
 
@@ -42,9 +43,12 @@ func Parse(args []string, out io.Writer) (*Config, error) {
 			"new socket, so that scripts can reach it (nvim --server ADDRESS --remote ...)")
 	geometry := fs.String("geometry", "80x24", "initial grid size as COLSxROWS")
 	fs.BoolVar(&c.Version, "version", false, "print the version and exit")
+	fs.BoolVar(&c.NoFork, "f", false, "stay in the foreground instead of giving the terminal back (like gvim -f);\n"+
+		"use it when a program waits for the editor, such as git's core.editor")
+	fs.BoolVar(&c.NoFork, "nofork", false, "same as -f")
 	fs.StringVar(&c.Trace, "trace", "", "write received redraw events and frame timing to `FILE` (for bug reports)")
 	fs.Usage = func() {
-		fmt.Fprintf(out, "usage: ng [options] [--listen ADDRESS] [--] [nvim arguments...]\n       ng --server [ADDRESS]\n\n")
+		fmt.Fprintf(out, "usage: ng [-f] [options] [--listen ADDRESS] [--] [nvim arguments...]\n       ng [-f] --server [ADDRESS]\n\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(allowBareServer(args)); err != nil {

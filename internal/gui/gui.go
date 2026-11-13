@@ -44,6 +44,7 @@ type Options struct {
 	Cols, Rows int
 	Trace      io.Writer // receives a log of redraws and frames, or nil
 	Start      time.Time // when the process started (for startup timing)
+	OnShown    func()    // called once the window is first shown, or nil
 }
 
 // Connector starts or attaches to Neovim. Run calls it on a goroutine, in
@@ -100,6 +101,7 @@ type App struct {
 
 	trace      io.Writer
 	traceStart time.Time
+	onShown    func()
 	latency    latency.Recorder // keystroke to frame, for --trace
 
 	mu      sync.Mutex
@@ -192,6 +194,7 @@ func (a *App) markClosed() {
 // complete, so it appears once, with the fonts and size from the config.
 func (a *App) Run(connect Connector, opt Options) error {
 	a.trace, a.traceStart = opt.Trace, opt.Start
+	a.onShown = opt.OnShown
 	if a.traceStart.IsZero() {
 		a.traceStart = time.Now()
 	}
@@ -675,6 +678,9 @@ func (a *App) show() {
 	// user is not mistaken for the answer to it.
 	a.settleAt = time.Now().Add(settleDelay)
 	a.mark("window shown")
+	if a.onShown != nil {
+		a.onShown()
+	}
 }
 
 // updatePixelSize reads the drawable size and resizes the grid to fit.

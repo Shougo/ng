@@ -153,12 +153,13 @@ Packagers: install `assets/ng.desktop` to `/usr/share/applications` and
 ## Usage
 
 ```sh
-ng [--nvim PATH] [--geometry COLSxROWS] [--listen ADDRESS] [--] [nvim arguments...]
-ng --server [ADDRESS]
+ng [-f] [--nvim PATH] [--geometry COLSxROWS] [--listen ADDRESS] [--] [nvim arguments...]
+ng [-f] --server [ADDRESS]
 ```
 
 | Option | Description |
 | --- | --- |
+| `-f`, `--nofork` | Stay in the foreground instead of giving the terminal back (like `gvim -f`) |
 | `--nvim PATH` | Neovim executable to start (default: `nvim`) |
 | `--geometry COLSxROWS` | Grid size until the config sets 'lines'/'columns' (default: `80x24`) |
 | `--trace FILE` | Log redraws, keys and frames with timestamps (attach it to bug reports) |
@@ -167,6 +168,19 @@ ng --server [ADDRESS]
 | `--server [ADDRESS]` | Attach to a running Neovim server (socket path or `host:port`). Without an address, attach to the Neovim a crashed ng left behind |
 
 Long command lines are best kept in a shell alias.
+
+Like GVim, ng started from a terminal gives it back: the shell prompt
+returns once the window is up, and closing the terminal does not close
+the window. Errors that happen before the window appears (an unknown
+option, a missing `nvim`) are still printed in the terminal. A program
+that waits for its editor needs `-f`, as with GVim:
+
+```sh
+git config --global core.editor 'ng -f'
+```
+
+From an application launcher or a script (no terminal), ng stays in the
+foreground anyway.
 
 ng uses Wayland when it is available and X11 otherwise (including xrdp
 sessions). SDL's own environment variables still work, for example

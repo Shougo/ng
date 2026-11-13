@@ -24,6 +24,10 @@ func TestParse(t *testing.T) {
 			Config{Nvim: "nvim", Trace: "/tmp/t.log", Cols: 80, Rows: 24, NvimArgs: []string{"x.txt"}}},
 		{[]string{"--listen", "/run/user/1000/thunar.sock", "--", "a.txt"},
 			Config{Nvim: "nvim", Listen: "/run/user/1000/thunar.sock", Cols: 80, Rows: 24, NvimArgs: []string{"a.txt"}}},
+		{[]string{"-f", "a.txt"},
+			Config{Nvim: "nvim", NoFork: true, Cols: 80, Rows: 24, NvimArgs: []string{"a.txt"}}},
+		{[]string{"--nofork", "--server"},
+			Config{Nvim: "nvim", NoFork: true, Server: AutoServer, Cols: 80, Rows: 24, NvimArgs: []string{}}},
 		{[]string{"-server=localhost:6666"},
 			Config{Nvim: "nvim", Server: "localhost:6666", Cols: 80, Rows: 24, NvimArgs: []string{}}},
 	}
