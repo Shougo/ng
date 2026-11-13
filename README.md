@@ -365,7 +365,7 @@ Hinting and antialiasing follow your fontconfig settings
 `--trace FILE` measures every keystroke from the moment the window
 system delivered the key event to the moment the frame showing Neovim's
 answer was presented, and ends the file with a summary. A session of
-ordinary editing on the author's machine (Manjaro, Neovim 0.12 with the
+ordinary editing on the author's machine (Manjaro, Neovim 0.13 nightly with the
 author's own config and plugins):
 
 ```
