@@ -360,16 +360,31 @@ Hinting and antialiasing follow your fontconfig settings
 
 `--trace FILE` measures every keystroke from the moment the window
 system delivered the key event to the moment the frame showing Neovim's
-answer was presented, and ends the file with a summary:
+answer was presented, and ends the file with a summary. A session of
+ordinary editing on the author's machine (Manjaro, Neovim 0.12 with the
+author's own config and plugins):
 
 ```
 # latency (key event to present, inside ng)
-# 42 keystrokes   median    p90     max (ms)
-#   total             ...
-#   queue             ...   (the event waiting in SDL's queue)
-#   nvim              ...   (Neovim answering, including the socket)
-#   frame             ...   (waiting for Neovim to finish, painting, presenting)
+# 176 keystrokes   median    p90     max (ms)
+#   total             7.95    8.46  121.90
+#   queue             0.14    0.20    0.82
+#   nvim              0.72    1.00  106.18
+#   frame             6.99    7.40   15.47
 ```
+
+- `queue`: the key event waiting in SDL's queue before ng handled it.
+- `nvim`: from sending the key to Neovim until its answer (flush)
+  arrived, including the socket.
+- `frame`: from the flush to the present. Most of it is the 4 ms ng
+  waits for Neovim to finish a burst of flushes (see package `frame`:
+  presenting earlier shows intermediate screens, such as a blank
+  command line); the rest is painting and presenting.
+
+Nine keystrokes in ten reach the screen within 8.5 ms, half of one
+60 Hz frame. The three samples over 20 ms were all Neovim's own work:
+`:` (106 ms in Neovim, entering the command line), `<CR>` running a
+command, and a mapping.
 
 Each frame is measured from the last key before Neovim answered: a key
 that changes nothing on screen (the start of a mapping, an operator
