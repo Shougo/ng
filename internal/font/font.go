@@ -28,6 +28,8 @@ typedef struct {
 	int antialias;  // -1 if unset
 	int autohint;   // -1 if unset
 	int family_ok;  // matched family equals the requested one
+	int synth_bold;    // fontconfig asks for emboldening (FC_EMBOLDEN)
+	int synth_oblique; // fontconfig asks for a slant (FC_MATRIX shear)
 } ng_match_t;
 
 static int ng_get_int(FcPattern *p, const char *obj, int def) {
@@ -51,6 +53,13 @@ static void ng_fill(FcPattern *font, const char *family, ng_match_t *out) {
 	out->hinting = ng_get_bool(font, FC_HINTING);
 	out->antialias = ng_get_bool(font, FC_ANTIALIAS);
 	out->autohint = ng_get_bool(font, FC_AUTOHINT);
+	// A font without an italic or bold face: fontconfig's 90-synthetic.conf
+	// marks the match oblique / bold and asks for a synthetic slant
+	// (matrix) or emboldening instead of reporting the face as roman.
+	out->synth_bold = ng_get_bool(font, FC_EMBOLDEN) == 1;
+	FcMatrix *mat = NULL;
+	out->synth_oblique = FcPatternGetMatrix(font, FC_MATRIX, 0, &mat) == FcResultMatch &&
+		mat && mat->xy != 0;
 	out->family_ok = 0;
 	if (family) {
 		for (int i = 0; FcPatternGetString(font, FC_FAMILY, i, &fam) == FcResultMatch; i++) {
@@ -376,8 +385,7 @@ func (s *Set) load(family string, style Style, ch rune, size float64) (*face, er
 		return nil, fmt.Errorf("font: cannot open %s", path)
 	}
 	f := &face{ft: ft, path: path, index: int(m.index), base: size}
-	f.embolden = style&Bold != 0 && m.weight < C.FC_WEIGHT_DEMIBOLD
-	f.oblique = style&Italic != 0 && m.slant == C.FC_SLANT_ROMAN
+	f.embolden, f.oblique = synthesize(style, m)
 	f.loadFlags, f.mono = loadFlags(m)
 	if err := s.setSize(f, size); err != nil {
 		C.FT_Done_Face(ft)
@@ -385,6 +393,17 @@ func (s *Set) load(family string, style Style, ch rune, size float64) (*face, er
 	}
 	s.faces[key] = f
 	return f, nil
+}
+
+// synthesize reports whether the style must be drawn by emboldening or
+// slanting the face's glyphs: the font has no such face. fontconfig says
+// so in two ways: the match is still roman / regular, or (with its
+// 90-synthetic.conf, the common setup) the match is reported oblique /
+// bold with a request to synthesize it.
+func synthesize(style Style, m C.ng_match_t) (embolden, oblique bool) {
+	embolden = style&Bold != 0 && (m.weight < C.FC_WEIGHT_DEMIBOLD || m.synth_bold != 0)
+	oblique = style&Italic != 0 && (m.slant == C.FC_SLANT_ROMAN || m.synth_oblique != 0)
+	return
 }
 
 // loadFlags honours the user's fontconfig rendering settings.

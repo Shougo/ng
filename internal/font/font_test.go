@@ -196,3 +196,45 @@ func TestGVimSyntaxAndWideSize(t *testing.T) {
 		t.Error("guifontwide size changed the cell size")
 	}
 }
+
+// Japanese fonts rarely have italic or bold faces. fontconfig then
+// reports the match as oblique with a request to slant it (its
+// 90-synthetic.conf); ng must still slant the glyphs, both for
+// 'guifontwide' and for a fallback font.
+func TestSyntheticItalicCJK(t *testing.T) {
+	for _, wide := range []string{"Noto Sans CJK JP", ""} {
+		s, err := NewSet("Courier 10 Pitch,monospace:h14", wide, 96, 0)
+		if err != nil {
+			t.Skip(err)
+		}
+		r, i := s.Glyph("漢", 0, 2), s.Glyph("漢", Italic, 2)
+		if r.Empty() {
+			s.Close()
+			t.Skip("no CJK font")
+		}
+		if d := skew(i) - skew(r); d < 1.5 {
+			t.Errorf("guifontwide=%q: italic 漢 is not slanted (skew %.1f, regular %.1f)", wide, skew(i), skew(r))
+		}
+		s.Close()
+	}
+}
+
+// skew is how far right the ink in the top third of g lies compared with
+// the bottom third, in pixels.
+func skew(g *Glyph) float64 {
+	center := func(y0, y1 int) float64 {
+		var sum, n float64
+		for y := y0; y < y1; y++ {
+			for x := 0; x < g.W; x++ {
+				a := float64(g.Pix[y*g.Stride+x])
+				sum += a * float64(x)
+				n += a
+			}
+		}
+		if n == 0 {
+			return 0
+		}
+		return sum / n
+	}
+	return center(0, g.H/3) - center(g.H-g.H/3, g.H)
+}
