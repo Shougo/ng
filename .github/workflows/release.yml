@@ -1,0 +1,164 @@
+name: release
+
+# Pushing a tag v* builds Linux binaries and attaches them to the GitHub
+# release of that tag (created if it does not exist yet). Run the workflow
+# by hand to build and check the archives without releasing anything.
+#
+# The binaries link SDL3 statically, because some distributions do not
+# ship it yet (Ubuntu 24.04). SDL still loads X11, Wayland, libdecor and
+# D-Bus at run time, as a distribution's SDL does, so one binary works
+# under both display servers. FreeType and fontconfig, which every desktop
+# has, stay shared. Building on Ubuntu 22.04 makes glibc 2.35 the oldest
+# that runs it, so the binaries serve Debian 12 and Ubuntu 22.04, which
+# have no SDL3 package either. Keep 22.04 until GitHub retires its runner;
+# then move to the next Ubuntu LTS and say in the README which systems are
+# dropped (a 24.04 build needs glibc 2.39).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  SDL_VERSION: "3.4.18"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config \
+            libfreetype-dev libfontconfig-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev \
+            libxi-dev libxss-dev libxtst-dev libxkbcommon-dev \
+            libwayland-dev wayland-protocols libdecor-0-dev \
+            libegl-dev libgl-dev libgles-dev \
+            libdbus-1-dev libibus-1.0-dev libudev-dev
+
+      # Only the static library is installed, so the linker cannot pick a
+      # shared libSDL3 by accident.
+      - name: Build SDL ${{ env.SDL_VERSION }} (static)
+        run: |
+          curl -fsSL -o /tmp/sdl.tar.gz \
+            "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VERSION}/SDL3-${SDL_VERSION}.tar.gz"
+          tar -C /tmp -xzf /tmp/sdl.tar.gz
+          cmake -S "/tmp/SDL3-${SDL_VERSION}" -B /tmp/sdl-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/opt/sdl3 \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DSDL_SHARED=OFF -DSDL_STATIC=ON \
+            -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF \
+            -DSDL_AUDIO=OFF -DSDL_CAMERA=OFF
+          cmake --build /tmp/sdl-build
+          sudo cmake --install /tmp/sdl-build
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags, so that ng --version reports the release
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      # cgo asks pkg-config for SDL's flags without --static, which leaves
+      # out the libraries a static libSDL3 needs. Go runs $PKG_CONFIG as a
+      # program, so give it one that adds --static.
+      - name: Build ng
+        run: |
+          printf '#!/bin/sh\nexec pkg-config --static "$@"\n' > /tmp/pkg-config-static
+          chmod +x /tmp/pkg-config-static
+          export PKG_CONFIG=/tmp/pkg-config-static
+          export PKG_CONFIG_PATH=/opt/sdl3/lib/pkgconfig:/opt/sdl3/lib/$(uname -m)-linux-gnu/pkgconfig
+          go build -trimpath -ldflags='-s -w' -o ng ./cmd/ng
+          ./ng --version
+
+      - name: Check the binary
+        run: |
+          ldd ng
+          if ldd ng | grep -q SDL3; then
+            echo "libSDL3 is linked dynamically" >&2
+            exit 1
+          fi
+          # The newest glibc symbol version the binary needs.
+          objdump -T ng | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1
+
+      - name: Package
+        id: package
+        run: |
+          version=$(git describe --tags --always)
+          name="ng-${version}-linux-${{ matrix.arch }}"
+          mkdir -p "dist/$name"
+          cp ng LICENSE README.md "dist/$name/"
+          cp -r assets "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          echo "archive=dist/$name.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ng-linux-${{ matrix.arch }}
+          path: ${{ steps.package.outputs.archive }}
+
+  # The archives must start on distributions that do not have SDL3, with
+  # nothing but FreeType and fontconfig installed. --version loads the
+  # binary and its libraries without opening a window.
+  verify:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["ubuntu:22.04", "ubuntu:24.04", "debian:12", "fedora:latest", "archlinux:latest"]
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ng-linux-amd64
+      - name: Install FreeType and fontconfig
+        run: |
+          if command -v apt-get >/dev/null; then
+            apt-get update && apt-get install -y libfreetype6 libfontconfig1
+          elif command -v dnf >/dev/null; then
+            dnf install -y freetype fontconfig tar gzip
+          else
+            pacman -Syu --noconfirm freetype2 fontconfig
+          fi
+      - name: Run
+        run: |
+          tar -xzf ng-*-linux-amd64.tar.gz
+          ./ng-*-linux-amd64/ng --version
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, verify]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum *.tar.gz > SHA256SUMS
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" dist/* --generate-notes --verify-tag --repo "$GITHUB_REPOSITORY"
+          fi

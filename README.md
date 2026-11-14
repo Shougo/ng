@@ -127,12 +127,30 @@ go install github.com/Shougo/ng/cmd/ng@latest
 ```
 
 Arch, Fedora and Debian are built in CI every day. Ubuntu 24.04 LTS and Debian 12 do
-not package SDL3; there you would have to build SDL3 yourself. If the
+not package SDL3; use a prebuilt binary there (below), or build SDL3
+yourself. If the
 distribution's Go is older than the one ng needs, `go install` downloads
 a newer Go toolchain by itself. Other distributions work the same way if
 they package SDL3 (with `pkg-config` support); ng does not provide
 packages itself, but packagers are welcome (set the version with
 `-ldflags "-X main.version=..."`).
+
+### Prebuilt binaries
+
+Each [release](https://github.com/Shougo/ng/releases) has binaries for
+x86-64 and arm64 Linux. SDL3 is built into them, so they need only
+FreeType and fontconfig, which every desktop has, and glibc 2.35 or
+later (Ubuntu 22.04, Debian 12 and later; Fedora, Arch). They run under
+both X11 and Wayland, with Fcitx and IBus.
+
+```sh
+tar -xzf ng-v*-linux-amd64.tar.gz
+install -Dm755 ng-v*-linux-amd64/ng ~/.local/bin/ng
+```
+
+The archive also holds the desktop entry and the icons (see below).
+`SHA256SUMS` lists the archives' checksums. ng does not provide
+distribution packages (deb, RPM).
 
 ### Desktop entry and icon
 
