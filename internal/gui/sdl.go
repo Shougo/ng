@@ -31,6 +31,8 @@ type event struct {
 	typed  uint32 // character typed, Shift/CapsLock/AltGr applied
 	mod    uint16
 	repeat bool
+	kbd    uint32  // keyboard id of a key event
+	stamp  float64 // SDL event timestamp in ms
 	text   string
 	x, y   float32
 	button int
@@ -50,6 +52,8 @@ func flatten(e *C.SDL_Event) event {
 		typed:      uint32(o.typed),
 		mod:        uint16(o.mod),
 		repeat:     o.repeat != 0,
+		kbd:        uint32(o.keyboard),
+		stamp:      float64(o.timestamp) / 1e6,
 		editStart:  int(o.edit_start),
 		editLength: int(o.edit_length),
 		x:          float32(o.x),

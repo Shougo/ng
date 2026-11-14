@@ -10,6 +10,7 @@ void ng_flatten(const SDL_Event *e, ng_event *o) {
 	o->type = e->type;
 	Uint64 now = SDL_GetTicksNS();
 	o->age_ns = now > e->common.timestamp ? now - e->common.timestamp : 0;
+	o->timestamp = e->common.timestamp;
 	switch (e->type) {
 	case SDL_EVENT_KEY_DOWN:
 	case SDL_EVENT_KEY_UP:
@@ -21,6 +22,7 @@ void ng_flatten(const SDL_Event *e, ng_event *o) {
 		o->typed = SDL_GetKeyFromScancode(e->key.scancode,
 			e->key.mod & (SDL_KMOD_SHIFT | SDL_KMOD_CAPS | SDL_KMOD_MODE), false);
 		o->repeat = e->key.repeat;
+		o->keyboard = e->key.which;
 		break;
 	case SDL_EVENT_TEXT_EDITING:
 		o->edit_start = e->edit.start;

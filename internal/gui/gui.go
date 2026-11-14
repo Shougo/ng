@@ -971,10 +971,21 @@ func (a *App) handle(e event) bool {
 	case C.SDL_EVENT_KEY_DOWN:
 		if a.trace != nil {
 			now := time.Now()
-			a.latency.Key(now.Add(-e.age), now, fmt.Sprintf("%q", rune(e.typed)))
-			a.tracef(time.Now(), "key     0x%x typed=%q mod=0x%x text-input=%v", e.key, rune(e.typed), e.mod, a.textInput)
+			// A repeated key's SDL timestamp can be that of the first
+			// press: measure repeats from when ng handled them.
+			event := now.Add(-e.age)
+			if e.repeat {
+				event = now
+			}
+			a.latency.Key(event, now, fmt.Sprintf("%q", rune(e.typed)))
+			a.tracef(now, "key     0x%x typed=%q mod=0x%x repeat=%v kbd=%d stamp=%.3f text-input=%v",
+				e.key, rune(e.typed), e.mod, e.repeat, e.kbd, e.stamp, a.textInput)
 		}
 		a.keyDown(e)
+	case C.SDL_EVENT_KEY_UP:
+		if a.trace != nil {
+			a.tracef(time.Now(), "keyup   0x%x kbd=%d stamp=%.3f", e.key, e.kbd, e.stamp)
+		}
 	case C.SDL_EVENT_TEXT_EDITING:
 		// The input method's preedit text: drawn by ng at the cursor, not
 		// sent to Neovim until committed (SDL_EVENT_TEXT_INPUT).

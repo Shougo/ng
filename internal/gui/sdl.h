@@ -11,6 +11,8 @@ typedef struct {
 	SDL_Keycode typed; // the character the key types with Shift/CapsLock/AltGr applied
 	SDL_Keymod mod;
 	int repeat;
+	Uint32 keyboard;   // SDL_KeyboardID of a key event
+	Uint64 timestamp;  // the event's SDL timestamp, in ns
 	int edit_start;  // SDL_EVENT_TEXT_EDITING: cursor, in characters
 	int edit_length; // SDL_EVENT_TEXT_EDITING: selected characters
 	float x, y;
