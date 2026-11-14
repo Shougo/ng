@@ -141,9 +141,10 @@ func Padding(p Painter, s *screen.Screen, f *font.Set, winW, winH int) {
 }
 
 // Cursor paints the cursor for the current mode. focused selects a solid
-// block or a hollow one, like GVim.
+// block or a hollow one, like GVim. Whether a busy Neovim hides the cursor
+// is the caller's decision (see gui.busyDelay).
 func Cursor(p Painter, s *screen.Screen, f *font.Set, focused bool) {
-	if s.Busy || s.Height == 0 || s.Width == 0 {
+	if s.Height == 0 || s.Width == 0 {
 		return
 	}
 	row, col := s.CursorRow, s.CursorCol

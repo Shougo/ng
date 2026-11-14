@@ -113,6 +113,8 @@ type App struct {
 	restart *nvim.Restart // :restart is in progress (main thread)
 
 	imageTex map[uint32]imageTexture // vim.ui.img images (main thread)
+
+	busySince time.Time // when Neovim last became busy, zero when it is not
 }
 
 // batch is one redraw notification and when it arrived.
@@ -400,6 +402,12 @@ func (a *App) loop() error {
 		case !a.settleAt.IsZero():
 			ms := max(1, int(time.Until(a.settleAt)/time.Millisecond)+1)
 			got = C.ng_wait_timeout(&ev, C.int(ms)) != 0
+		case a.scr.Busy && !a.busySince.IsZero() && !a.busyHidesCursor(time.Now()):
+			// Busy, cursor still shown: wake up when it is to be hidden.
+			ms := max(1, int(time.Until(a.busySince.Add(busyDelay))/time.Millisecond)+1)
+			if got = C.ng_wait_timeout(&ev, C.int(ms)) != 0; !got && a.busyHidesCursor(time.Now()) {
+				a.drawn = true
+			}
 		default:
 			if C.ng_wait(&ev) == 0 {
 				return sdlError("SDL_WaitEvent")
@@ -513,6 +521,12 @@ func (a *App) processRedraws() (drawn, closed bool, err error) {
 		}
 		if a.scr.Graphics.TakeChanged() && a.shown {
 			drawn = true
+		}
+		switch {
+		case a.scr.Busy && a.busySince.IsZero():
+			a.busySince = b.at
+		case !a.scr.Busy:
+			a.busySince = time.Time{}
 		}
 		if flush {
 			a.flushed = true
@@ -774,7 +788,9 @@ func (a *App) present() {
 	C.ng_blit(a.ren, a.screenTex, C.int(a.pixW), C.int(a.pixH))
 	a.dropImages()
 	paint.Images(a, a.scr, a.fonts)
-	paint.Cursor(a, a.scr, a.fonts, a.focused)
+	if !a.busyHidesCursor(time.Now()) {
+		paint.Cursor(a, a.scr, a.fonts, a.focused)
+	}
 	area, cursorX := paint.CursorRect(a.scr, a.fonts), 0
 	if a.preedit.Text != "" {
 		area, cursorX = paint.DrawPreedit(a, a.scr, a.fonts, a.preedit)
@@ -792,6 +808,20 @@ func (a *App) present() {
 		a.tracef(time.Now(), "present cursor=(%d,%d) mode=%s busy=%v",
 			a.scr.CursorRow, a.scr.CursorCol, m.Name, a.scr.Busy)
 	}
+}
+
+// busyDelay is how long Neovim must stay busy before ng hides the
+// cursor. Neovim sends busy_start and busy_stop around short pieces of
+// work too, for example for every key typed on the command line with ui2.
+// A terminal hides the cursor for those as well, but it shows the screen
+// only at its refresh, so a busy period of a few milliseconds never
+// appears; ng presents frames in between and the cursor blinked away.
+const busyDelay = 100 * time.Millisecond
+
+// busyHidesCursor reports whether the cursor is hidden at now because
+// Neovim has been busy for at least busyDelay.
+func (a *App) busyHidesCursor(now time.Time) bool {
+	return a.scr.Busy && !a.busySince.IsZero() && now.Sub(a.busySince) >= busyDelay
 }
 
 // imeInsertOnly is g:ng_ime_insert_only, true unless set to 0 or false.
