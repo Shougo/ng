@@ -57,7 +57,9 @@ declined.
 - GUI tab bars, sidebars, file trees, menus and toolbars
 - A configuration file. ng is configured with Neovim options, variables
   and command line arguments only.
-- Windows and macOS. Other GUIs cover them.
+- Windows and macOS. Other GUIs cover them. A community fork,
+  [gw31415/ng](https://github.com/gw31415/ng), builds ng on macOS and
+  follows this repository; it is maintained there, not here.
 - Cursor blinking
 - Clipboard integration beyond what a terminal does: yank and put use
   Neovim's own clipboard provider (`"+y`, `"+p`). Like a terminal, ng

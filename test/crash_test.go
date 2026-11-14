@@ -65,7 +65,12 @@ func TestSurvivesGUIKill(t *testing.T) {
 	}
 	// The helper's sockets go to a private directory, so other Neovim
 	// instances on the machine do not disturb the "orphan" check.
-	dir := t.TempDir()
+	// t.TempDir() can exceed the socket path limit (104 bytes on macOS).
+	dir, err := os.MkdirTemp("", "ng")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
 	t.Setenv("XDG_RUNTIME_DIR", dir)
 
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperProcess$")
