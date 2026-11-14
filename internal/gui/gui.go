@@ -969,6 +969,17 @@ func (a *App) handle(e event) bool {
 		}
 		return true
 	case C.SDL_EVENT_KEY_DOWN:
+		if e.repeat && bool(C.ng_key_up_queued(C.int(e.scan))) {
+			// The key was already released. With Fcitx 5 under Wayland,
+			// SDL sends, on release, the repeats it thinks are due since
+			// the press, although it sent them while the key was held:
+			// the cursor jumped by as many keys when a key held on the
+			// command line was released. No repeat comes after a release.
+			if a.trace != nil {
+				a.tracef(time.Now(), "key     0x%x repeat after release, dropped", e.key)
+			}
+			return false
+		}
 		if a.trace != nil {
 			now := time.Now()
 			// A repeated key's SDL timestamp can be that of the first

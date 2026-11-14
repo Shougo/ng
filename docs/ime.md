@@ -90,3 +90,25 @@ autocmd InsertLeave * call jobstart(['fcitx5-remote', '-c'])
 milliseconds). `jobstart()` returns at once; tested with ng, the input
 method is still turned off reliably even though ng stops text input
 right after the mode change. A list starts no shell.
+
+## Key repeats sent again on release (Wayland, Fcitx 5)
+
+2026-11-14. Holding Ctrl+B or Ctrl+F on the command line moved the
+cursor one cell per repeat, then, on release, by as many cells again at
+once: `--trace` showed a burst of key events, as many as the repeats
+before it, within half a millisecond of the release. It happened only
+with the input method active (Normal mode has it off) and not with
+Fcitx 5 stopped.
+
+Fcitx 5 repeats keys on the input method side and sends a fake release
+after each repeat to stop the client's own repeat timer (see its
+author's article "Key repetition and key event handling issue with
+Wayland input method protocols"). SDL, on a release, first sends the
+repeats it computes as due since the press. Together, the repeats sent
+while the key was held were sent a second time.
+
+ng drops a key repeat when the release of the same key is already in
+the event queue (`ng_key_up_queued`): no repeat comes after a release.
+`--trace` logs `repeat after release, dropped`. Repeats of a held key
+carry the timestamp of the first press here, so the latency summary
+measures repeats from when ng handles them.

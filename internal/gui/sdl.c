@@ -23,6 +23,7 @@ void ng_flatten(const SDL_Event *e, ng_event *o) {
 			e->key.mod & (SDL_KMOD_SHIFT | SDL_KMOD_CAPS | SDL_KMOD_MODE), false);
 		o->repeat = e->key.repeat;
 		o->keyboard = e->key.which;
+		o->scancode = (int)e->key.scancode;
 		break;
 	case SDL_EVENT_TEXT_EDITING:
 		o->edit_start = e->edit.start;
@@ -183,4 +184,16 @@ bool ng_draw_image(SDL_Renderer *r, SDL_Texture *t, int sx, int sy, int sw, int 
 	SDL_FRect src = { (float)sx, (float)sy, (float)sw, (float)sh };
 	SDL_FRect dst = { (float)dx, (float)dy, (float)dw, (float)dh };
 	return SDL_RenderTexture(r, t, &src, &dst);
+}
+
+// ng_key_up_queued reports whether the release of the key with this
+// scancode is already waiting in the event queue.
+bool ng_key_up_queued(int scancode) {
+	SDL_Event ev[64];
+	int n = SDL_PeepEvents(ev, 64, SDL_PEEKEVENT, SDL_EVENT_KEY_UP, SDL_EVENT_KEY_UP);
+	for (int i = 0; i < n; i++) {
+		if ((int)ev[i].key.scancode == scancode)
+			return true;
+	}
+	return false;
 }

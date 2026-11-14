@@ -12,6 +12,7 @@ typedef struct {
 	SDL_Keymod mod;
 	int repeat;
 	Uint32 keyboard;   // SDL_KeyboardID of a key event
+	int scancode;      // of a key event
 	Uint64 timestamp;  // the event's SDL timestamp, in ns
 	int edit_start;  // SDL_EVENT_TEXT_EDITING: cursor, in characters
 	int edit_length; // SDL_EVENT_TEXT_EDITING: selected characters
@@ -38,6 +39,7 @@ bool ng_update(SDL_Texture *t, int x, int y, int w, int h, const void *pix, int 
 bool ng_blit(SDL_Renderer *r, SDL_Texture *t, int w, int h);
 float ng_pixel_density(SDL_Window *w);
 bool ng_set_icon(SDL_Window *w, int width, int height, void *rgba);
+bool ng_key_up_queued(int scancode);
 SDL_Texture *ng_image_texture(SDL_Renderer *r, int w, int h, const void *rgba);
 bool ng_draw_image(SDL_Renderer *r, SDL_Texture *t, int sx, int sy, int sw, int sh,
                    int dx, int dy, int dw, int dh);
