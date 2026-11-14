@@ -2,6 +2,9 @@ package paint
 
 import (
 	"bytes"
+	"encoding/base64"
+	"image"
+	"image/color"
 	"image/png"
 	"os"
 	"testing"
@@ -231,5 +234,54 @@ func TestWideSymbolOverflow(t *testing.T) {
 	}
 	if got := ink(1, 1); got != xOnly {
 		t.Errorf("icon before text spills into the text's cell (%d lit pixels, %d from the x alone)", got, xOnly)
+	}
+}
+
+// An image placed with vim.ui.img's sequences fills its cells over the
+// text and is clipped to the grid.
+func TestImages(t *testing.T) {
+	f := loadFont(t)
+	s := screen.New(10, 4)
+	redraw(t, s,
+		[]any{"default_colors_set", []any{int64(0xffffff), int64(0x000000), int64(0xff0000), int64(0), int64(0)}},
+		gridLine(0, "a", "b", "c"))
+	// A 2x2 image: red, green / blue, white.
+	img := image.NewNRGBA(image.Rect(0, 0, 2, 2))
+	img.Set(0, 0, color.NRGBA{255, 0, 0, 255})
+	img.Set(1, 0, color.NRGBA{0, 255, 0, 255})
+	img.Set(0, 1, color.NRGBA{0, 0, 255, 255})
+	img.Set(1, 1, color.NRGBA{255, 255, 255, 255})
+	var b bytes.Buffer
+	png.Encode(&b, img)
+	enc := base64.StdEncoding.EncodeToString(b.Bytes())
+	s.Graphics.Feed([]byte("\x1b_Gf=100,a=t,t=d,i=1,q=2,m=0;" + enc + "\x1b\\"))
+	// At row 1, column 2 (1-indexed), 4 columns by 2 rows; a second
+	// placement runs past the right edge.
+	s.Graphics.Feed([]byte("\x1b7\x1b[1;2H\x1b_Ga=p,i=1,p=2,c=4,r=2,C=1,q=2\x1b\\\x1b8"))
+	s.Graphics.Feed([]byte("\x1b7\x1b[3;9H\x1b_Ga=p,i=1,p=3,c=4,r=2,C=1,q=2\x1b\\\x1b8"))
+
+	p := paintAll(s, f)
+	Images(p, s, f)
+	dump(t, "images", p)
+
+	cw, ch := f.CellW, f.CellH
+	at := func(x, y int) color.RGBA { return p.Img.RGBAAt(x, y) }
+	// Quadrants of the first placement (x from column 1, y from row 0).
+	if c := at(cw+1, 1); c != (color.RGBA{255, 0, 0, 255}) {
+		t.Errorf("top-left = %v, want red", c)
+	}
+	if c := at(cw+4*cw-2, 1); c != (color.RGBA{0, 255, 0, 255}) {
+		t.Errorf("top-right = %v, want green", c)
+	}
+	if c := at(cw+1, 2*ch-2); c != (color.RGBA{0, 0, 255, 255}) {
+		t.Errorf("bottom-left = %v, want blue", c)
+	}
+	// Right of the placement: untouched background.
+	if c := at(5*cw+1, ch+1); c != (color.RGBA{0, 0, 0, 255}) {
+		t.Errorf("right of the image = %v, want the background", c)
+	}
+	// The clipped placement starts at column 8 and shows its left half.
+	if c := at(8*cw+1, 2*ch+1); c != (color.RGBA{255, 0, 0, 255}) {
+		t.Errorf("clipped image = %v, want red", c)
 	}
 }

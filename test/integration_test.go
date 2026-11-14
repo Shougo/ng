@@ -95,6 +95,7 @@ func (h *harness) onNotify(method string, params []any) {
 		return
 	}
 	if method == nvim.UIEnterNotification {
+		h.nv.EnableTTY() // as the GUI does
 		select {
 		case h.uiEntered <- struct{}{}:
 		default:
@@ -112,12 +113,21 @@ func (h *harness) onNotify(method string, params []any) {
 	if err != nil && h.err == nil {
 		h.err = err
 	}
+	// Answer what Neovim asked the "terminal", as the GUI does, and wake
+	// waitFor when images change even without a flush.
+	responses := h.scr.Graphics.TakeResponses()
+	if h.scr.Graphics.TakeChanged() {
+		flush = true
+	}
 	if flush && h.img != nil {
 		for _, r := range h.scr.TakeDirty() {
 			paint.Row(h.img, h.scr, h.fonts, r)
 		}
 	}
 	h.mu.Unlock()
+	for _, r := range responses {
+		h.nv.TermResponse(r)
+	}
 	if flush {
 		select {
 		case h.flushed <- struct{}{}:

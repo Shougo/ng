@@ -162,3 +162,23 @@ bool ng_set_icon(SDL_Window *w, int width, int height, void *rgba) {
 	SDL_DestroySurface(s);
 	return ok;
 }
+
+// ng_image_texture makes a texture from non-premultiplied RGBA pixels, for
+// an image placed with vim.ui.img. SDL copies the pixels.
+SDL_Texture *ng_image_texture(SDL_Renderer *r, int w, int h, const void *rgba) {
+	SDL_Texture *t = SDL_CreateTexture(r, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, w, h);
+	if (!t)
+		return NULL;
+	SDL_UpdateTexture(t, NULL, rgba, w * 4);
+	SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+	SDL_SetTextureScaleMode(t, SDL_SCALEMODE_LINEAR);
+	return t;
+}
+
+// ng_draw_image draws the source rectangle of t scaled into the destination.
+bool ng_draw_image(SDL_Renderer *r, SDL_Texture *t, int sx, int sy, int sw, int sh,
+                   int dx, int dy, int dw, int dh) {
+	SDL_FRect src = { (float)sx, (float)sy, (float)sw, (float)sh };
+	SDL_FRect dst = { (float)dx, (float)dy, (float)dw, (float)dh };
+	return SDL_RenderTexture(r, t, &src, &dst);
+}

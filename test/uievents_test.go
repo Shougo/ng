@@ -48,7 +48,7 @@ var uiEvents = map[string]string{
 	"update_menu":   "ignored: ng has no menu bar",
 	"error_exit":    "ignored: ng reports the exit from the closed channel",
 	"screenshot":    "ignored: nvim__screenshot is for the TUI's own tests",
-	"ui_send":       "ignored: raw bytes for a terminal (nvim_ui_send), meaningless to a GUI",
+	"ui_send":       "handled: kitty graphics for vim.ui.img (package kitty); the rest is skipped",
 
 	// ui-grid-old: only sent without ext_linegrid, which ng always sets.
 	"resize": "ignored: ui-grid-old", "clear": "ignored: ui-grid-old",

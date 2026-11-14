@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Shougo/ng/internal/kitty"
 	"github.com/Shougo/ng/internal/msgpack"
 )
 
@@ -92,7 +93,15 @@ type Screen struct {
 	optionChanged        map[string]bool
 	allDirty             bool
 	colorsChanged        bool
+
+	// Graphics holds the images placed with the kitty graphics protocol
+	// (vim.ui.img), received in "ui_send" events. They move with the text
+	// when the grid scrolls.
+	Graphics *kitty.Terminal
 }
+
+// ResetGraphics forgets all images, as when attaching to another server.
+func (s *Screen) ResetGraphics() { s.Graphics = kitty.New() }
 
 // New returns a screen of the given size.
 func New(width, height int) *Screen {
@@ -104,6 +113,7 @@ func New(width, height int) *Screen {
 		Options:       map[string]any{},
 		optionChanged: map[string]bool{},
 		MouseEnabled:  true,
+		Graphics:      kitty.New(),
 	}
 	s.resize(width, height)
 	return s
@@ -310,6 +320,17 @@ func (s *Screen) apply(name string, args []any) error {
 	case "grid_scroll":
 		s.gridScroll(argInt(args, 1), argInt(args, 2), argInt(args, 3),
 			argInt(args, 4), argInt(args, 5))
+		s.Graphics.Scroll(argInt(args, 1), argInt(args, 2), argInt(args, 3),
+			argInt(args, 4), argInt(args, 5))
+	case "ui_send":
+		if len(args) > 0 {
+			switch c := args[0].(type) {
+			case string:
+				s.Graphics.Feed([]byte(c))
+			case []byte:
+				s.Graphics.Feed(c)
+			}
+		}
 	case "hl_attr_define":
 		if len(args) < 2 {
 			return fmt.Errorf("short args")

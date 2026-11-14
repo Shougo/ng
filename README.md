@@ -95,13 +95,29 @@ What follows from it:
 
 ng differs from a terminal only where a window can do better without
 changing what Neovim shows: how glyphs are rendered (fonts, fallback,
-fitting into cells), input methods, Ctrl+Shift+V pasting, and, later,
-images through `vim.ui.img`.
+fitting into cells), input methods, Ctrl+Shift+V pasting, and images
+through `vim.ui.img`.
 
-## Planned
+## Images
 
-- Images through Neovim's official `vim.ui.img` API (not a GUI-specific
-  API): plugins that use it will show images in ng and in kitty alike.
+ng shows images placed with Neovim's official `vim.ui.img` API (Neovim
+0.13 or later), so plugins that use it show images in ng and in kitty
+alike. There is no ng-specific API.
+
+`vim.ui.img` writes kitty graphics protocol sequences to the terminal
+with `nvim_ui_send()`. ng receives them like a terminal (it sets the
+`stdout_tty` UI option once Neovim has started) and understands the part
+of the protocol Neovim uses: PNG and raw RGB(A) images sent directly,
+placing, moving and deleting them, and the query that
+`vim.ui.img._supported()` makes. Plugins that write kitty graphics
+sequences with `nvim_ui_send()` themselves work too, within that part.
+
+Images behave like text: they are placed on cells, sized in cells
+(`width`, `height`), and move with the text when a window scrolls; an
+image scrolled out of its window is gone, like its text. Not yet
+supported: images below the text (negative `zindex` is drawn on top),
+and kitty features Neovim does not use (files, shared memory,
+compression, animation, Unicode placeholders).
 
 ## Requirements
 

@@ -195,6 +195,22 @@ func (n *Nvim) Attach(cols, rows int) error {
 	return err
 }
 
+// EnableTTY sets the stdout_tty UI option, so that Neovim sends ng what it
+// writes to a terminal (nvim_ui_send, as "ui_send" events): ng understands
+// the kitty graphics part of it, which is how vim.ui.img shows images
+// (package kitty). Call it after UIEnter: a UI that has stdout_tty while
+// Neovim starts is asked for its background color and terminal features,
+// and Neovim waits for answers a GUI does not give. It does not wait.
+func (n *Nvim) EnableTTY() error {
+	return n.Notify("nvim_ui_set_option", "stdout_tty", true)
+}
+
+// TermResponse answers a query Neovim wrote to the "terminal" (see
+// Attach), as a terminal's reply would. It does not wait.
+func (n *Nvim) TermResponse(resp string) error {
+	return n.Notify("nvim_ui_term_event", "termresponse", resp)
+}
+
 // TryResize asks Neovim to resize the grid. It does not wait.
 func (n *Nvim) TryResize(cols, rows int) error {
 	return n.Notify("nvim_ui_try_resize", cols, rows)

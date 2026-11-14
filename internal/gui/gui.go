@@ -111,6 +111,8 @@ type App struct {
 	fatal   error
 
 	restart *nvim.Restart // :restart is in progress (main thread)
+
+	imageTex map[uint32]imageTexture // vim.ui.img images (main thread)
 }
 
 // batch is one redraw notification and when it arrived.
@@ -143,7 +145,8 @@ func (a *App) post(f func()) {
 // New prepares an App for a connection that has not attached yet. Redraw
 // notifications must be passed to Enqueue.
 func New() *App {
-	return &App{glyphs: map[*font.Glyph]rect{}, focused: true, vars: map[string]any{}}
+	return &App{glyphs: map[*font.Glyph]rect{}, focused: true, vars: map[string]any{},
+		imageTex: map[uint32]imageTexture{}}
 }
 
 // Enqueue is the redraw notification handler. It runs on the RPC reader
@@ -277,6 +280,7 @@ func (a *App) restartSession() {
 	a.mu.Unlock()
 	a.attached = false
 	a.vars = map[string]any{} // the bootstrap reports them again
+	a.scr.ResetGraphics()     // the old server's images are gone with it
 	a.updateTextInput()
 	a.tracef(time.Now(), "restart attach to %s", r.Addr)
 	connect := func(onNotify rpc.NotificationHandler) (*nvim.Nvim, error) {
@@ -480,6 +484,7 @@ func (a *App) processRedraws() (drawn, closed bool, err error) {
 		if b.uiEnter {
 			a.tracef(b.at, "startup UIEnter (config has run)")
 			a.uiEntered = true
+			a.nv.EnableTTY() // for vim.ui.img; see its comment
 			if a.flushed && !a.shown {
 				// Nothing may change after UIEnter: show what we have.
 				a.show()
@@ -498,6 +503,16 @@ func (a *App) processRedraws() (drawn, closed bool, err error) {
 		flush, err := a.scr.HandleRedraw(b.params)
 		if err != nil {
 			return drawn, closed, err
+		}
+		// Replies to what Neovim wrote to the "terminal" (vim.ui.img asks
+		// whether images are supported), and images placed or removed:
+		// those need a present even if no row changed.
+		for _, r := range a.scr.Graphics.TakeResponses() {
+			a.tracef(b.at, "termresponse %q", r)
+			a.nv.TermResponse(r)
+		}
+		if a.scr.Graphics.TakeChanged() && a.shown {
+			drawn = true
 		}
 		if flush {
 			a.flushed = true
@@ -757,6 +772,8 @@ func (a *App) present() {
 		a.mark("first frame presented")
 	}
 	C.ng_blit(a.ren, a.screenTex, C.int(a.pixW), C.int(a.pixH))
+	a.dropImages()
+	paint.Images(a, a.scr, a.fonts)
 	paint.Cursor(a, a.scr, a.fonts, a.focused)
 	area, cursorX := paint.CursorRect(a.scr, a.fonts), 0
 	if a.preedit.Text != "" {
