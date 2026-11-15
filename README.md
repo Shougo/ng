@@ -97,8 +97,6 @@ What follows from it:
   else is attached.)
 - When ng and the terminal differ, it is a bug in ng. Please report it.
 
-![ng (left) and Neovim's TUI in a terminal (right) attached to the same Neovim, showing the same screen](docs/screenshots/terminal.png)
-
 ng differs from a terminal only where a window can do better without
 changing what Neovim shows: how glyphs are rendered (fonts, fallback,
 fitting into cells), input methods, Ctrl+Shift+V pasting, and images
