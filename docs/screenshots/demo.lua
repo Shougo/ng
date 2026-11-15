@@ -67,7 +67,11 @@ function scenes.edit()
   vim.cmd.edit(vim.fn.fnameescape(root .. '/cmd/ng/main.go'))
   vim.fn.search('^func run()')
   vim.cmd('normal! zt')
+  local code = vim.api.nvim_get_current_win()
   vim.cmd('rightbelow vsplit ' .. vim.fn.fnameescape(dir .. '/sample.md'))
+  -- Half of 100 columns: keep the Go code readable instead of wrapped.
+  vim.wo[code][0].wrap = false
+  vim.bo[vim.api.nvim_win_get_buf(code)].tabstop = 4
   vim.api.nvim_create_autocmd('VimResized', { command = 'wincmd =' })
   files_float()
 end
