@@ -39,15 +39,25 @@ local function files_float()
   }
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.api.nvim_open_win(buf, false, {
-    relative = 'editor',
-    row = 2,
-    col = vim.o.columns - 26,
-    width = 20,
-    height = #lines,
-    border = 'rounded',
-    title = ' ファイル ',
-    title_pos = 'center',
+  local function place()
+    return { relative = 'editor', anchor = 'NE', row = 1, col = vim.o.columns - 2 }
+  end
+  local win = vim.api.nvim_open_win(
+    buf,
+    false,
+    vim.tbl_extend('force', place(), {
+      width = 20,
+      height = #lines,
+      border = 'rounded',
+      title = ' ファイル ',
+      title_pos = 'center',
+    })
+  )
+  -- A tiling window manager may resize the window after startup.
+  vim.api.nvim_create_autocmd('VimResized', {
+    callback = function()
+      vim.api.nvim_win_set_config(win, place())
+    end,
   })
 end
 
@@ -58,6 +68,7 @@ function scenes.edit()
   vim.fn.search('^func run()')
   vim.cmd('normal! zt')
   vim.cmd('rightbelow vsplit ' .. vim.fn.fnameescape(dir .. '/sample.md'))
+  vim.api.nvim_create_autocmd('VimResized', { command = 'wincmd =' })
   files_float()
 end
 
