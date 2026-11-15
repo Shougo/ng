@@ -14,3 +14,6 @@ experiments, or a wrong first guess. Keep the commands that settled it.
 | [restart.md](restart.md) | `:restart` and the UI events ng must follow |
 | [latency.md](latency.md) | Measuring keystroke latency, and a measurement bug |
 | [images.md](images.md) | `vim.ui.img`: the kitty protocol subset, and `stdout_tty` at startup |
+
+[screenshots/](screenshots/README.md) holds the screenshots in the
+README and the minimal config that sets up each of them.
