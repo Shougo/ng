@@ -173,6 +173,8 @@ import (
 	"sync"
 	"unicode/utf8"
 	"unsafe"
+
+	"github.com/Shougo/ng/internal/width"
 )
 
 // Style selects a font variant.
@@ -554,6 +556,43 @@ func extent(f *face) (left, right float64) {
 	return math.Min(0, inkL), math.Max(adv, inkR)
 }
 
+// spacing reports whether r, after the first character of a cell, takes
+// space of its own: Neovim may put a grapheme cluster such as "ｶﾞ" (a
+// halfwidth dakuten is not a combining mark) in one cell. Zero-width
+// characters are drawn over the character before them.
+func spacing(r rune) bool { return width.Rune(r, false) > 0 }
+
+// layoutBox returns the horizontal box of text at the current size, in
+// pixels from the origin of its first character: the characters that take
+// space are laid out one after another by their advances. ok is false
+// when the first character cannot be loaded.
+func (s *Set) layoutBox(f *face, text string) (left, right float64, ok bool) {
+	pen := 0.0
+	for i, r := range text {
+		if i > 0 && !spacing(r) {
+			continue
+		}
+		gi := C.FT_Get_Char_Index(f.ft, C.FT_ULong(r))
+		if gi == 0 && i > 0 {
+			continue
+		}
+		if C.ng_ft_load(f.ft, gi, f.loadFlags, 0, 0) != 0 {
+			if i == 0 {
+				return 0, 0, false
+			}
+			continue
+		}
+		lo, hi := extent(f)
+		if i == 0 {
+			left, right = lo, hi
+		} else {
+			left, right = math.Min(left, pen+lo), math.Max(right, pen+hi)
+		}
+		pen += float64(C.ng_slot(f.ft).advance.x) / 64
+	}
+	return left, right, true
+}
+
 func (s *Set) render(text string, style Style, cells int, spill bool) *Glyph {
 	empty := &Glyph{}
 	base, _ := utf8.DecodeRuneInString(text)
@@ -577,9 +616,8 @@ func (s *Set) render(text string, style Style, cells int, spill bool) *Glyph {
 	}
 	scale, wide := 1.0, false
 	boxL, boxR := 0.0, float64(s.CellW)
-	gi := C.FT_Get_Char_Index(f.ft, C.FT_ULong(base))
-	if C.ng_ft_load(f.ft, gi, f.loadFlags, 0, 0) == 0 {
-		boxL, boxR = extent(f)
+	if l, r, ok := s.layoutBox(f, text); ok {
+		boxL, boxR = l, r
 		wide = cells == 1 && boxR-boxL > wideInk*float64(s.CellW)
 		h := float64(C.ng_ascender(f.ft)-C.ng_descender(f.ft)) / 64
 		if !primary || cells != 1 || wide {
@@ -597,11 +635,14 @@ func (s *Set) render(text string, style Style, cells int, spill bool) *Glyph {
 	defer s.setSize(f, f.base)
 
 	canvas := newCanvas(availW, s.CellH)
-	originX := 0
+	originX, pen, advance := 0, 0, 0
 	for i, r := range text {
 		gi := C.FT_Get_Char_Index(f.ft, C.FT_ULong(r))
 		if gi == 0 && i > 0 {
 			continue // combining mark the font lacks; draw the base only
+		}
+		if i > 0 && spacing(r) {
+			pen += advance
 		}
 		emb, obl := C.int(0), C.int(0)
 		if f.embolden {
@@ -621,6 +662,9 @@ func (s *Set) render(text string, style Style, cells int, spill bool) *Glyph {
 			continue
 		}
 		slot := C.ng_slot(f.ft)
+		if spacing(r) || i == 0 {
+			advance = int(math.Round(float64(slot.advance.x) / 64))
+		}
 		if i == 0 {
 			switch {
 			case spill:
@@ -644,7 +688,7 @@ func (s *Set) render(text string, style Style, cells int, spill bool) *Glyph {
 				baseline = (s.CellH-(asc+desc))/2 + asc
 			}
 		}
-		canvas.draw(&slot.bitmap, originX+int(slot.bitmap_left), baseline-int(slot.bitmap_top))
+		canvas.draw(&slot.bitmap, originX+pen+int(slot.bitmap_left), baseline-int(slot.bitmap_top))
 	}
 	g := canvas.trim()
 	g.Wide = wide && !spill

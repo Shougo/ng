@@ -272,3 +272,22 @@ func TestWideSymbol(t *testing.T) {
 		}
 	}
 }
+
+// A halfwidth dakuten (U+FF9E) is not a combining mark: Neovim 0.13 puts
+// "ｶﾞ" in one two-cell grid cell, and the dakuten must be drawn after the
+// kana, not on top of it.
+func TestSpacingCluster(t *testing.T) {
+	s := newTestSet(t)
+	kana, mark := s.Glyph("ｶ", 0, 1), s.Glyph("ﾞ", 0, 1)
+	if kana.Empty() || mark.Empty() {
+		t.Skip("no font with halfwidth katakana")
+	}
+	g := s.Glyph("ｶﾞ", 0, 2)
+	checkFits(t, s, g, 2, "ｶﾞ in two cells")
+	if g.W < kana.W+mark.W {
+		t.Errorf("ｶﾞ is %d pixels wide, want at least %d (ｶ %d + ﾞ %d side by side)",
+			g.W, kana.W+mark.W, kana.W, mark.W)
+	}
+	// Neovim 0.12 puts the same cluster in one cell.
+	checkFits(t, s, s.Glyph("ｶﾞ", 0, 1), 1, "ｶﾞ in one cell")
+}
