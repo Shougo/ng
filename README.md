@@ -326,6 +326,10 @@ if exists('g:ng')
 endif
 ```
 
+As in GVim, the first family of a list that is installed is used and the
+others are skipped, so one setting can serve machines with different
+fonts; ng warns only when none of them is found.
+
 GVim's GTK syntax with the size as the last word also works, so the same
 line serves both GVim and ng:
 

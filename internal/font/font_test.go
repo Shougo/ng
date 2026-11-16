@@ -132,14 +132,16 @@ func TestCombiningCharacter(t *testing.T) {
 	}
 }
 
+// As in GVim, a missing family in a list is skipped without a word when
+// another one is found.
 func TestUnknownFamilyFallsBack(t *testing.T) {
-	s, err := NewSet("No Such Font Family 12345,monospace:h10", "", 96, 0)
+	s, err := NewSet("No Such Font Family 12345,monospace:h10", "No Such Wide Font 12345,Noto Sans CJK JP", 96, 0)
 	if err != nil {
 		t.Skip(err)
 	}
 	defer s.Close()
-	if len(s.Warnings) == 0 {
-		t.Error("expected a warning for the missing family")
+	if len(s.Warnings) != 0 {
+		t.Errorf("unexpected warnings: %v", s.Warnings)
 	}
 	if s.Glyph("A", 0, 1).Empty() {
 		t.Error("monospace fallback did not render")

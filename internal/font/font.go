@@ -347,17 +347,23 @@ func (s *Set) Close() {
 // Size returns the font size in points.
 func (s *Set) Size() float64 { return s.size }
 
+// facesFor loads the faces of a 'guifont' or 'guifontwide' list. As in
+// GVim, a family that is not installed is skipped silently while another
+// one in the list is found, so that one setting serves several machines;
+// when none is, the regular style reports them all.
 func (s *Set) facesFor(families []string, style Style, size float64) []*face {
 	var out []*face
+	var errs []string
 	for _, fam := range families {
 		f, err := s.load(fam, style, 0, size)
 		if err != nil {
-			if style == 0 {
-				s.Warnings = append(s.Warnings, err.Error())
-			}
+			errs = append(errs, err.Error())
 			continue
 		}
 		out = append(out, f)
+	}
+	if len(out) == 0 && style == 0 {
+		s.Warnings = append(s.Warnings, errs...)
 	}
 	return out
 }
