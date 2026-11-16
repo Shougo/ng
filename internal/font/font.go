@@ -22,6 +22,7 @@ package font
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_SYNTHESIS_H
+#include FT_TRUETYPE_TABLES_H
 #include <fontconfig/fontconfig.h>
 
 typedef struct {
@@ -160,6 +161,26 @@ enum {
 static FT_GlyphSlot ng_slot(FT_Face f) { return f->glyph; }
 static long ng_ascender(FT_Face f) { return f->size->metrics.ascender; }
 static long ng_descender(FT_Face f) { return f->size->metrics.descender; }
+
+// ng_box gives the vertical box a fallback glyph is fitted into, in 26.6
+// pixels: the typographic ascender and descender (OS/2) when they are
+// tighter than the line metrics. CJK fonts put their em box there, while
+// their line metrics add a line gap (Noto Sans CJK: 1.45 em).
+static void ng_box(FT_Face f, long *asc, long *desc) {
+	*asc = f->size->metrics.ascender;
+	*desc = f->size->metrics.descender;
+	if (!FT_IS_SCALABLE(f))
+		return;
+	TT_OS2 *os2 = FT_Get_Sfnt_Table(f, FT_SFNT_OS2);
+	if (!os2 || os2->version == 0xFFFF || os2->sTypoAscender <= 0 || os2->sTypoDescender > 0)
+		return;
+	long a = FT_MulFix(os2->sTypoAscender, f->size->metrics.y_scale);
+	long d = FT_MulFix(os2->sTypoDescender, f->size->metrics.y_scale);
+	if (a - d < *asc - *desc) {
+		*asc = a;
+		*desc = d;
+	}
+}
 static int ng_scalable(FT_Face f) { return FT_IS_SCALABLE(f) ? 1 : 0; }
 static int ng_num_fixed(FT_Face f) { return f->num_fixed_sizes; }
 static int ng_fixed_height(FT_Face f, int i) { return f->available_sizes[i].height; }
@@ -623,7 +644,9 @@ func (s *Set) render(text string, style Style, cells int, spill bool) *Glyph {
 	if l, r, ok := s.layoutBox(f, text); ok {
 		boxL, boxR = l, r
 		wide = cells == 1 && boxR-boxL > wideInk*float64(s.CellW)
-		h := float64(C.ng_ascender(f.ft)-C.ng_descender(f.ft)) / 64
+		var asc, desc C.long
+		C.ng_box(f.ft, &asc, &desc)
+		h := float64(asc-desc) / 64
 		if !primary || cells != 1 || wide {
 			if w := boxR - boxL; w > float64(availW) {
 				scale = math.Min(scale, float64(availW)/w)
@@ -684,8 +707,9 @@ func (s *Set) render(text string, style Style, cells int, spill bool) *Glyph {
 		// glyph's vertical extent in the cell.
 		baseline := s.Baseline
 		if !primary {
-			asc := ceil26(C.ng_ascender(f.ft))
-			desc := -floor26(C.ng_descender(f.ft))
+			var a, d C.long
+			C.ng_box(f.ft, &a, &d)
+			asc, desc := ceil26(a), -floor26(d)
 			if asc+desc <= s.CellH {
 				baseline = max(asc, min(s.Baseline, s.CellH-desc))
 			} else {

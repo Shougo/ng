@@ -164,6 +164,34 @@ func TestUnknownWideFamilyWarns(t *testing.T) {
 	}
 }
 
+// Noto Sans CJK's line metrics are 1.45 em, taller than the cell of a
+// Latin font at a similar size. Fitting them into the cell shrank every
+// kanji to the same small size whatever the 'guifontwide' size, leaving a
+// gap between characters. The em box (OS/2 typo metrics) is what must fit.
+func TestWideFontFillsCells(t *testing.T) {
+	s, err := NewSet("Courier 10 Pitch 15", "Noto Sans CJK JP:h18", 96, 0)
+	if err != nil {
+		t.Skip(err)
+	}
+	defer s.Close()
+	if len(s.Warnings) != 0 {
+		t.Skip(s.Warnings)
+	}
+	g := s.Glyph("漢", 0, 2)
+	checkFits(t, s, g, 2, "漢 at h18")
+	if want := 2 * s.CellW * 3 / 4; g.W < want {
+		t.Errorf("漢 is %d pixels wide in two %d-pixel cells, want at least %d", g.W, s.CellW, want)
+	}
+	small, err := NewSet("Courier 10 Pitch 15", "Noto Sans CJK JP:h12", 96, 0)
+	if err != nil {
+		t.Skip(err)
+	}
+	defer small.Close()
+	if w := small.Glyph("漢", 0, 2).W; w >= g.W {
+		t.Errorf("guifontwide size has no effect: 漢 is %d pixels at h12 and %d at h18", w, g.W)
+	}
+}
+
 func TestDPIScalesCells(t *testing.T) {
 	a := newTestSet(t)
 	b, err := NewSet("Courier 10 Pitch,monospace:h11", "", 192, 0)
