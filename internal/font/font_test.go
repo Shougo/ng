@@ -135,7 +135,7 @@ func TestCombiningCharacter(t *testing.T) {
 // As in GVim, a missing family in a list is skipped without a word when
 // another one is found.
 func TestUnknownFamilyFallsBack(t *testing.T) {
-	s, err := NewSet("No Such Font Family 12345,monospace:h10", "No Such Wide Font 12345,Noto Sans CJK JP", 96, 0)
+	s, err := NewSet("No Such Font Family,monospace:h10", "No Such Wide Font,monospace", 96, 0)
 	if err != nil {
 		t.Skip(err)
 	}
@@ -153,7 +153,7 @@ func TestUnknownFamilyFallsBack(t *testing.T) {
 // lazily on the first double-width cell, so the warning was lost and the
 // automatic fallback was used without a word.
 func TestUnknownWideFamilyWarns(t *testing.T) {
-	s, err := NewSet("Courier 10 Pitch,monospace:h11", "No Such Wide Font 12345", 96, 0)
+	s, err := NewSet("Courier 10 Pitch,monospace:h11", "No Such Wide Font", 96, 0)
 	if err != nil {
 		t.Skip(err)
 	}
@@ -161,7 +161,13 @@ func TestUnknownWideFamilyWarns(t *testing.T) {
 	if len(s.Warnings) == 0 {
 		t.Error("expected a warning for the missing guifontwide family")
 	}
-	if s.Glyph("漢", 0, 2).Empty() {
+	// Only where some installed font has the character.
+	plain, err := NewSet("Courier 10 Pitch,monospace:h11", "", 96, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plain.Close()
+	if !plain.Glyph("漢", 0, 2).Empty() && s.Glyph("漢", 0, 2).Empty() {
 		t.Error("automatic fallback did not render 漢")
 	}
 }
