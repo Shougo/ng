@@ -591,12 +591,16 @@ func (a *App) loadFonts(guifont, guifontwide string, linespace int) error {
 	dpi := a.dpi()
 	key := fmt.Sprintf("%s\x00%s\x00%d\x00%f", guifont, guifontwide, linespace, dpi)
 	if key == a.fontKey && a.fonts != nil {
+		a.tracef(time.Now(), "font    unchanged guifont=%q guifontwide=%q dpi=%.1f", guifont, guifontwide, dpi)
 		return nil
 	}
 	f, err := font.NewSet(guifont, guifontwide, dpi, linespace)
 	if err != nil {
+		a.tracef(time.Now(), "font    guifont=%q guifontwide=%q dpi=%.1f: %v", guifont, guifontwide, dpi, err)
 		return err
 	}
+	a.tracef(time.Now(), "font    guifont=%q guifontwide=%q dpi=%.1f -> %s warnings=%q",
+		guifont, guifontwide, dpi, f.Describe(), f.Warnings)
 	for _, w := range f.Warnings {
 		a.errorMessage(w)
 	}

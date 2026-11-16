@@ -191,6 +191,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"path/filepath"
+	"strings"
 	"sync"
 	"unicode/utf8"
 	"unsafe"
@@ -342,6 +344,23 @@ func (s *Set) Close() {
 		C.FT_Done_FreeType(s.lib)
 		s.lib = nil
 	}
+}
+
+// Describe tells which font files the regular style uses, for --trace:
+// the 'guifont' faces, then the 'guifontwide' faces after "wide".
+func (s *Set) Describe() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%.1fpt cell %dx%d", s.size, s.CellW, s.CellH)
+	for _, f := range s.primaries(0) {
+		fmt.Fprintf(&b, " %s", filepath.Base(f.path))
+	}
+	if fs := s.wides(0); len(fs) > 0 {
+		b.WriteString(" wide")
+		for _, f := range fs {
+			fmt.Fprintf(&b, " %s@%.1fpt", filepath.Base(f.path), f.base)
+		}
+	}
+	return b.String()
 }
 
 // Size returns the font size in points.
