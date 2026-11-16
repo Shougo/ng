@@ -304,6 +304,10 @@ func NewSet(guifont, guifontwide string, dpi float64, linespace int) (*Set, erro
 		s.Close()
 		return nil, err
 	}
+	// Load the regular 'guifontwide' faces now, not on the first
+	// double-width cell: Warnings is read only after NewSet returns, and a
+	// missing family would otherwise fall back without a word.
+	s.wides(0)
 	return s, nil
 }
 

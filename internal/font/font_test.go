@@ -146,6 +146,24 @@ func TestUnknownFamilyFallsBack(t *testing.T) {
 	}
 }
 
+// A missing 'guifontwide' family must be reported when the set is made:
+// the caller shows Warnings only then, and the wide faces were loaded
+// lazily on the first double-width cell, so the warning was lost and the
+// automatic fallback was used without a word.
+func TestUnknownWideFamilyWarns(t *testing.T) {
+	s, err := NewSet("Courier 10 Pitch,monospace:h11", "No Such Wide Font 12345", 96, 0)
+	if err != nil {
+		t.Skip(err)
+	}
+	defer s.Close()
+	if len(s.Warnings) == 0 {
+		t.Error("expected a warning for the missing guifontwide family")
+	}
+	if s.Glyph("漢", 0, 2).Empty() {
+		t.Error("automatic fallback did not render 漢")
+	}
+}
+
 func TestDPIScalesCells(t *testing.T) {
 	a := newTestSet(t)
 	b, err := NewSet("Courier 10 Pitch,monospace:h11", "", 192, 0)
