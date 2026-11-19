@@ -345,3 +345,41 @@ func TestSpacingCluster(t *testing.T) {
 	// Neovim 0.12 puts the same cluster in one cell.
 	checkFits(t, s, s.Glyph("ｶﾞ", 0, 1), 1, "ｶﾞ in one cell")
 }
+
+// A kana with a combining sound mark is drawn as the precomposed kana:
+// fonts disagree on where U+3099 goes (VL Gothic: a full-width character
+// with the dots at its left), and drawn over the kana it landed left of it.
+func TestComposedKana(t *testing.T) {
+	s := newTestSet(t)
+	for _, c := range []struct{ decomposed, precomposed string }{
+		{"か\u3099", "が"}, {"は\u309a", "ぱ"}, {"ウ\u3099", "ヴ"},
+	} {
+		want := s.Glyph(c.precomposed, 0, 2)
+		if want.Empty() {
+			t.Skip("no font with kana")
+		}
+		got := s.Glyph(c.decomposed, 0, 2)
+		if got.X != want.X || got.Y != want.Y || got.W != want.W || got.H != want.H ||
+			string(got.Pix) != string(want.Pix) {
+			t.Errorf("%q is not drawn as %q", c.decomposed, c.precomposed)
+		}
+	}
+}
+
+// Noto Sans CJK draws U+309A as a zero-width mark wholly left of its
+// origin: it follows the kana's advance. カ has no precomposed form with it.
+func TestTrailingMark(t *testing.T) {
+	s, err := NewSet("Courier 10 Pitch 15", "Noto Sans CJK JP", 96, 0)
+	if err != nil {
+		t.Skip(err)
+	}
+	defer s.Close()
+	if len(s.Warnings) != 0 {
+		t.Skip(s.Warnings)
+	}
+	kana, g := s.Glyph("カ", 0, 2), s.Glyph("カ\u309a", 0, 2)
+	if g.X < kana.X {
+		t.Errorf("the mark starts at x=%d, left of カ at x=%d", g.X, kana.X)
+	}
+	checkFits(t, s, g, 2, "カ\u309a")
+}

@@ -645,6 +645,7 @@ func (s *Set) layoutBox(f *face, text string) (left, right float64, ok bool) {
 
 func (s *Set) render(text string, style Style, cells int, spill bool) *Glyph {
 	empty := &Glyph{}
+	text = composeKana(text)
 	base, _ := utf8.DecodeRuneInString(text)
 	if base == utf8.RuneError || base == ' ' || text == "" {
 		return empty
@@ -741,7 +742,15 @@ func (s *Set) render(text string, style Style, cells int, spill bool) *Glyph {
 				baseline = (s.CellH-(asc+desc))/2 + asc
 			}
 		}
-		canvas.draw(&slot.bitmap, originX+pen+int(slot.bitmap_left), baseline-int(slot.bitmap_top))
+		x := originX + pen + int(slot.bitmap_left)
+		if i > 0 && !spacing(r) && int(slot.bitmap_left)+int(slot.bitmap.width) <= 0 {
+			// A mark drawn wholly left of its origin is meant to follow the
+			// advance of the character before it (Noto Sans CJK's U+309A
+			// after a kana with no precomposed form). Marks in monospaced
+			// fonts sit over their own origin and stay there.
+			x += advance
+		}
+		canvas.draw(&slot.bitmap, x, baseline-int(slot.bitmap_top))
 	}
 	g := canvas.trim()
 	g.Wide = wide && !spill
