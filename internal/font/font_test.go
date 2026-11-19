@@ -240,7 +240,9 @@ func TestGVimSyntaxAndWideSize(t *testing.T) {
 	}
 	defer small.Close()
 	gb, gs := big.Glyph("漢", 0, 2), small.Glyph("漢", 0, 2)
-	if gb.Empty() || gs.Empty() {
+	if len(big.Warnings) != 0 || gb.Empty() || gs.Empty() {
+		// Without IPAGothic both sets fall back to the same font at the
+		// guifont size, and the sizes cannot differ.
 		t.Skip("no IPAGothic")
 	}
 	if gs.H >= gb.H {
