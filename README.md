@@ -357,8 +357,8 @@ text-input protocol) through SDL:
   the same fonts and CJK cell fitting as the rest of the screen,
   underlined, with the segment being converted reversed. If it would run
   past the right edge it is shifted left.
-- The candidate window is placed at the cursor (or at the text being
-  composed).
+- The candidate window is placed at the cursor; while text is being
+  composed, under its start, or under the segment being converted.
 - While text is being composed, keys such as Enter, Escape and the arrows
   go to the input method, not to Neovim. Only the committed text reaches
   Neovim, as if typed.

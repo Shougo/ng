@@ -795,13 +795,13 @@ func (a *App) present() {
 	if !a.busyHidesCursor(time.Now()) {
 		paint.Cursor(a, a.scr, a.fonts, a.focused)
 	}
-	area, cursorX := paint.CursorRect(a.scr, a.fonts), 0
+	area, candidateX := paint.CursorRect(a.scr, a.fonts), 0
 	if a.preedit.Text != "" {
-		area, cursorX = paint.DrawPreedit(a, a.scr, a.fonts, a.preedit)
-		cursorX -= area.X
+		area, candidateX = paint.DrawPreedit(a, a.scr, a.fonts, a.preedit)
+		candidateX -= area.X
 	}
 	a.flushGlyphs()
-	a.setIMEArea(area, cursorX)
+	a.setIMEArea(area, candidateX)
 	C.SDL_RenderPresent(a.ren)
 	if a.trace != nil {
 		if l, ok := a.latency.Present(time.Now()); ok {

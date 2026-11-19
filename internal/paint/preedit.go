@@ -23,9 +23,11 @@ type Rect struct{ X, Y, W, H int }
 // DrawPreedit paints the preedit text over the grid at the cursor, with
 // ng's own glyphs, underlined, the selected segment reversed. It is
 // shifted left if it would run past the right edge. It returns the area
-// it covers and the x position of the preedit cursor, for placing the
-// input method's candidate window.
-func DrawPreedit(p Painter, s *screen.Screen, f *font.Set, pe Preedit) (area Rect, cursorX int) {
+// it covers and the x position at which the input method should place
+// its candidate window: the segment being converted, or the start of the
+// text while it is being typed, so that the suggestions stay put instead
+// of moving right with every key (as on Windows and macOS).
+func DrawPreedit(p Painter, s *screen.Screen, f *font.Set, pe Preedit) (area Rect, candidateX int) {
 	if pe.Text == "" || s.Width == 0 || s.Height == 0 {
 		return Rect{}, 0
 	}
@@ -42,7 +44,7 @@ func DrawPreedit(p Painter, s *screen.Screen, f *font.Set, pe Preedit) (area Rec
 
 	fg, bg := s.DefaultFG, s.DefaultBG
 	t := max(1, f.CellH/16)
-	cursorX = -1
+	cursorX := -1
 	x, ch := x0, 0 // ch counts characters (code points)
 	for _, c := range cells {
 		w := c.Width * f.CellW
@@ -72,7 +74,11 @@ func DrawPreedit(p Painter, s *screen.Screen, f *font.Set, pe Preedit) (area Rec
 		// A bar cursor inside the preedit text, as terminals draw it.
 		p.FillRect(min(cursorX, maxX-t), y, max(1, f.CellW/8), f.CellH, fg)
 	}
-	return Rect{X: x0, Y: y, W: x - x0, H: f.CellH}, cursorX
+	candidateX = x0
+	if pe.SelLen > 0 {
+		candidateX = cursorX
+	}
+	return Rect{X: x0, Y: y, W: x - x0, H: f.CellH}, candidateX
 }
 
 // CursorRect is where the input method should place its candidate window

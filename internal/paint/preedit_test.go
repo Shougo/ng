@@ -25,8 +25,8 @@ func TestPreeditAtCursor(t *testing.T) {
 	if area != want {
 		t.Errorf("area %+v, want %+v", area, want)
 	}
-	if cx != 11*f.CellW {
-		t.Errorf("cursor x %d, want end of text %d", cx, 11*f.CellW)
+	if cx != 3*f.CellW {
+		t.Errorf("candidate x %d, want start of text %d", cx, 3*f.CellW)
 	}
 	for _, r := range rec.rects {
 		if r[1] < f.CellH || r[1]+r[3] > 2*f.CellH {
@@ -70,12 +70,17 @@ func TestPreeditSelectionReversed(t *testing.T) {
 	}
 }
 
-func TestPreeditCursorInside(t *testing.T) {
+// While text is typed the candidate window stays at the start of the
+// preedit, wherever its cursor is; while a segment is converted it goes
+// to that segment.
+func TestPreeditCandidatePosition(t *testing.T) {
 	f := loadFont(t)
 	s := preeditScreen(t, 20, 2)
-	_, cx := DrawPreedit(&recorder{}, s, f, Preedit{Text: "かな", Cursor: 1})
-	if cx != (2+2)*f.CellW {
-		t.Errorf("cursor x %d, want %d", cx, 4*f.CellW)
+	if _, cx := DrawPreedit(&recorder{}, s, f, Preedit{Text: "かな", Cursor: 1}); cx != 2*f.CellW {
+		t.Errorf("typing: candidate x %d, want %d", cx, 2*f.CellW)
+	}
+	if _, cx := DrawPreedit(&recorder{}, s, f, Preedit{Text: "にほんご", Cursor: 2, SelLen: 2}); cx != (2+4)*f.CellW {
+		t.Errorf("converting: candidate x %d, want %d", cx, 6*f.CellW)
 	}
 }
 
