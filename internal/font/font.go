@@ -419,14 +419,7 @@ func (s *Set) load(family string, style Style, ch rune, size float64) (*face, er
 		defer C.free(unsafe.Pointer(cfam))
 	}
 	var m C.ng_match_t
-	bold, italic := C.int(0), C.int(0)
-	if style&Bold != 0 {
-		bold = 1
-	}
-	if style&Italic != 0 {
-		italic = 1
-	}
-	if C.ng_match(cfam, bold, italic, C.uint(ch), &m) == 0 {
+	if C.ng_match(cfam, cbool(style&Bold != 0), cbool(style&Italic != 0), C.uint(ch), &m) == 0 {
 		return nil, fmt.Errorf("font: no match for %q", family)
 	}
 	path := C.GoString(m.path)
@@ -576,8 +569,8 @@ func (s *Set) Glyph(text string, style Style, cells int) *Glyph {
 // drawn from its cell over the next one. Use it when the next cell is
 // blank. For any other text it returns Glyph(text, style, 1).
 func (s *Set) Spill(text string, style Style) *Glyph {
-	if !s.Glyph(text, style, 1).Wide {
-		return s.Glyph(text, style, 1)
+	if g := s.Glyph(text, style, 1); !g.Wide {
+		return g
 	}
 	return s.cached(glyphKey{text, style, 1, true})
 }
@@ -658,37 +651,81 @@ func (s *Set) render(text string, style Style, cells int, spill bool) *Glyph {
 	if spill {
 		availW = 2 * s.CellW
 	}
-
-	// Measure at the configured size, then shrink if the glyph does not fit
-	// its cells. Glyphs from the primary font in a single cell are trusted
-	// so that their hinting is not disturbed, unless they are wide symbols.
 	if err := s.setSize(f, f.base); err != nil {
 		return empty
 	}
-	scale, wide := 1.0, false
-	boxL, boxR := 0.0, float64(s.CellW)
-	if l, r, ok := s.layoutBox(f, text); ok {
-		boxL, boxR = l, r
-		wide = cells == 1 && boxR-boxL > wideInk*float64(s.CellW)
-		var asc, desc C.long
-		C.ng_box(f.ft, &asc, &desc)
-		h := float64(asc-desc) / 64
-		if !primary || cells != 1 || wide {
-			if w := boxR - boxL; w > float64(availW) {
-				scale = math.Min(scale, float64(availW)/w)
-			}
-			if h > float64(s.CellH) {
-				scale = math.Min(scale, float64(s.CellH)/h)
-			}
-		}
-	}
+	boxL, boxR, scale, wide := s.fit(f, text, primary, cells, availW)
 	if err := s.setSize(f, f.base*scale); err != nil {
 		return empty
 	}
 	defer s.setSize(f, f.base)
 
+	originX := 0
+	switch {
+	case spill:
+		// From the cell's left edge, as a terminal draws it.
+		originX = max(0, int(math.Round(-boxL*scale)))
+	case !primary || cells != 1 || wide:
+		// Center the glyph's box inside the cells.
+		w := (boxR - boxL) * scale
+		originX = max(0, int(math.Round((float64(availW)-w)/2-boxL*scale)))
+	}
 	canvas := newCanvas(availW, s.CellH)
-	originX, pen, advance := 0, 0, 0
+	s.drawText(canvas, f, text, originX, s.baselineFor(f, primary))
+	g := canvas.trim()
+	g.Wide = wide && !spill
+	return g
+}
+
+// fit measures text in face f at its configured size and returns its
+// horizontal box, the scale that makes it fit availW pixels and the cell
+// height, and whether a one-cell glyph is a wide symbol. Glyphs from the
+// primary font in a single cell are trusted (scale 1) so that their
+// hinting is not disturbed, unless they are wide symbols.
+func (s *Set) fit(f *face, text string, primary bool, cells, availW int) (boxL, boxR, scale float64, wide bool) {
+	boxL, boxR, scale = 0, float64(s.CellW), 1
+	l, r, ok := s.layoutBox(f, text)
+	if !ok {
+		return boxL, boxR, scale, false
+	}
+	boxL, boxR = l, r
+	wide = cells == 1 && boxR-boxL > wideInk*float64(s.CellW)
+	if primary && cells == 1 && !wide {
+		return boxL, boxR, scale, wide
+	}
+	if w := boxR - boxL; w > float64(availW) {
+		scale = math.Min(scale, float64(availW)/w)
+	}
+	var asc, desc C.long
+	C.ng_box(f.ft, &asc, &desc)
+	if h := float64(asc-desc) / 64; h > float64(s.CellH) {
+		scale = math.Min(scale, float64(s.CellH)/h)
+	}
+	return boxL, boxR, scale, wide
+}
+
+// baselineFor is where the baseline of face f, at its current size, goes
+// in the cell: the primary font's own; for other fonts the same when
+// their box fits, else the box centered in the cell.
+func (s *Set) baselineFor(f *face, primary bool) int {
+	if primary {
+		return s.Baseline
+	}
+	var a, d C.long
+	C.ng_box(f.ft, &a, &d)
+	asc, desc := ceil26(a), -floor26(d)
+	if asc+desc <= s.CellH {
+		return max(asc, min(s.Baseline, s.CellH-desc))
+	}
+	return (s.CellH-(asc+desc))/2 + asc
+}
+
+// drawText draws the characters of one cell into canvas, the first at
+// originX. Characters that take space of their own follow the advance of
+// the one before them; zero-width marks are drawn over it.
+func (s *Set) drawText(canvas *canvas, f *face, text string, originX, baseline int) {
+	emb, obl, mono := cbool(f.embolden), cbool(f.oblique), cbool(f.mono)
+	pen, advance := 0, 0
 	for i, r := range text {
 		gi := C.FT_Get_Char_Index(f.ft, C.FT_ULong(r))
 		if gi == 0 && i > 0 {
@@ -697,50 +734,12 @@ func (s *Set) render(text string, style Style, cells int, spill bool) *Glyph {
 		if i > 0 && spacing(r) {
 			pen += advance
 		}
-		emb, obl := C.int(0), C.int(0)
-		if f.embolden {
-			emb = 1
-		}
-		if f.oblique {
-			obl = 1
-		}
-		if C.ng_ft_load(f.ft, gi, f.loadFlags, emb, obl) != 0 {
-			continue
-		}
-		mono := C.int(0)
-		if f.mono {
-			mono = 1
-		}
-		if C.ng_ft_render(f.ft, mono) != 0 {
+		if C.ng_ft_load(f.ft, gi, f.loadFlags, emb, obl) != 0 || C.ng_ft_render(f.ft, mono) != 0 {
 			continue
 		}
 		slot := C.ng_slot(f.ft)
 		if spacing(r) || i == 0 {
 			advance = int(math.Round(float64(slot.advance.x) / 64))
-		}
-		if i == 0 {
-			switch {
-			case spill:
-				// From the cell's left edge, as a terminal draws it.
-				originX = max(0, int(math.Round(-boxL*scale)))
-			case !primary || cells != 1 || wide:
-				// Center the glyph's box inside the cells.
-				w := (boxR - boxL) * scale
-				originX = max(0, int(math.Round((float64(availW)-w)/2-boxL*scale)))
-			}
-		}
-		// Keep the font's own baseline when it fits; otherwise center the
-		// glyph's vertical extent in the cell.
-		baseline := s.Baseline
-		if !primary {
-			var a, d C.long
-			C.ng_box(f.ft, &a, &d)
-			asc, desc := ceil26(a), -floor26(d)
-			if asc+desc <= s.CellH {
-				baseline = max(asc, min(s.Baseline, s.CellH-desc))
-			} else {
-				baseline = (s.CellH-(asc+desc))/2 + asc
-			}
 		}
 		x := originX + pen + int(slot.bitmap_left)
 		if i > 0 && !spacing(r) && int(slot.bitmap_left)+int(slot.bitmap.width) <= 0 {
@@ -752,9 +751,14 @@ func (s *Set) render(text string, style Style, cells int, spill bool) *Glyph {
 		}
 		canvas.draw(&slot.bitmap, x, baseline-int(slot.bitmap_top))
 	}
-	g := canvas.trim()
-	g.Wide = wide && !spill
-	return g
+}
+
+// cbool converts b for C.
+func cbool(b bool) C.int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // canvas accumulates coverage for one cell group, clipped to its bounds.

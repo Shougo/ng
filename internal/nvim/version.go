@@ -6,9 +6,10 @@ import (
 	"github.com/Shougo/ng/internal/msgpack"
 )
 
-// Supported Neovim versions: the latest stable release series and nightly.
-// CI tests exactly these two every day. When a new minor version of Neovim
-// is released, raise MinVersion to it (and update the README).
+// MinVersion is the oldest supported Neovim: ng supports the latest
+// stable release series and nightly, and CI tests exactly these two every
+// day. When a new minor version of Neovim is released, raise MinVersion to
+// it (and update the README).
 var MinVersion = Version{0, 12, 0}
 
 // Version is a Neovim version.

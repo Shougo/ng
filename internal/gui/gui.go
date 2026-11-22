@@ -373,8 +373,8 @@ const showTimeout = 2 * time.Second
 
 // Frame coalescing: see package frame.
 const (
-	quietMs    = int(frame.Quiet / time.Millisecond)
-	maxDelayMs = frame.MaxDelay
+	quietMs  = int(frame.Quiet / time.Millisecond)
+	maxDelay = frame.MaxDelay
 )
 
 func (a *App) loop() error {
@@ -422,7 +422,7 @@ func (a *App) loop() error {
 			return err
 		}
 		if a.drawn {
-			deadline := time.Now().Add(maxDelayMs)
+			deadline := time.Now().Add(maxDelay)
 			for time.Now().Before(deadline) && C.ng_wait_timeout(&ev, C.int(quietMs)) != 0 {
 				p, closed, err := a.drain(&ev)
 				if err != nil || closed {
@@ -553,8 +553,7 @@ func (a *App) applyUIChanges() {
 	changed := a.scr.TakeOptionChanges()
 	if slices.Contains(changed, "guifont") || slices.Contains(changed, "guifontwide") ||
 		slices.Contains(changed, "linespace") {
-		gf, gfw := a.scr.OptionString("guifont"), a.scr.OptionString("guifontwide")
-		if err := a.loadFonts(gf, gfw, a.scr.OptionInt("linespace")); err != nil {
+		if err := a.loadOptionFonts(); err != nil {
 			a.errorMessage(err.Error())
 		} else if a.shown {
 			// Like GVim: keep 'lines' and 'columns' and resize the window.
@@ -583,6 +582,13 @@ func (a *App) dpi() float64 {
 		s = 1
 	}
 	return 96 * s
+}
+
+// loadOptionFonts loads the fonts that 'guifont', 'guifontwide' and
+// 'linespace' ask for.
+func (a *App) loadOptionFonts() error {
+	return a.loadFonts(a.scr.OptionString("guifont"), a.scr.OptionString("guifontwide"),
+		a.scr.OptionInt("linespace"))
 }
 
 // loadFonts replaces the font set. The atlas is emptied and every row is
@@ -691,8 +697,7 @@ func (a *App) show() {
 		return
 	}
 	if a.fonts == nil {
-		if err := a.loadFonts(a.scr.OptionString("guifont"), a.scr.OptionString("guifontwide"),
-			a.scr.OptionInt("linespace")); err != nil {
+		if err := a.loadOptionFonts(); err != nil {
 			a.errorMessage(err.Error())
 			if a.loadFonts("", "", 0) != nil {
 				return
@@ -947,8 +952,7 @@ func (a *App) handle(e event) bool {
 		a.paintDirty()
 		return true
 	case C.SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED:
-		if err := a.loadFonts(a.scr.OptionString("guifont"), a.scr.OptionString("guifontwide"),
-			a.scr.OptionInt("linespace")); err == nil {
+		if err := a.loadOptionFonts(); err == nil {
 			a.updatePixelSize(false)
 			a.paintDirty()
 		}
