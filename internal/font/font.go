@@ -81,7 +81,7 @@ static void ng_fill(FcPattern *font, const char *family, ng_match_t *out) {
 // ng_match finds a font. family may be NULL. When ch is non-zero only a
 // font that contains ch is accepted (used for fallback lookup).
 static int ng_match(const char *family, int bold, int italic, unsigned int ch,
-                    ng_match_t *out) {
+                    int skip, ng_match_t *out) {
 	FcPattern *pat = FcPatternCreate();
 	if (family)
 		FcPatternAddString(pat, FC_FAMILY, (const FcChar8 *)family);
@@ -114,6 +114,10 @@ static int ng_match(const char *family, int bold, int italic, unsigned int ch,
 				continue;
 			if (!FcCharSetHasChar(fcs, ch))
 				continue;
+			if (skip > 0) {
+				skip--;
+				continue;
+			}
 			FcPattern *m = FcFontRenderPrepare(NULL, pat, set->fonts[i]);
 			if (m) {
 				ng_fill(m, family, out);
@@ -247,6 +251,8 @@ type face struct {
 	// fixed strikes FreeType cannot scale (Noto Color Emoji has only
 	// 109 pixels): 1 for every other font.
 	px float64
+	// drawn caches drawable for a color font.
+	drawn map[rune]bool
 }
 
 type faceKey struct {
@@ -426,13 +432,19 @@ func (s *Set) wides(style Style) []*face {
 // load opens the font fontconfig picks for family (or, with ch != 0 and an
 // empty family, any font containing ch).
 func (s *Set) load(family string, style Style, ch rune, size float64) (*face, error) {
+	return s.loadNth(family, style, ch, size, 0)
+}
+
+// loadNth is load for the nth font (from 0) that fontconfig finds for
+// character ch.
+func (s *Set) loadNth(family string, style Style, ch rune, size float64, nth int) (*face, error) {
 	var cfam *C.char
 	if family != "" {
 		cfam = C.CString(family)
 		defer C.free(unsafe.Pointer(cfam))
 	}
 	var m C.ng_match_t
-	if C.ng_match(cfam, cbool(style&Bold != 0), cbool(style&Italic != 0), C.uint(ch), &m) == 0 {
+	if C.ng_match(cfam, cbool(style&Bold != 0), cbool(style&Italic != 0), C.uint(ch), C.int(nth), &m) == 0 {
 		return nil, fmt.Errorf("font: no match for %q", family)
 	}
 	path := C.GoString(m.path)
@@ -551,18 +563,46 @@ func (s *Set) measure(f *face, linespace int) error {
 
 func hasChar(f *face, r rune) bool { return C.FT_Get_Char_Index(f.ft, C.FT_ULong(r)) != 0 }
 
+// drawable reports whether f has r and can draw it. A color font may map
+// r to a glyph that FreeType renders as nothing: a COLRv1 glyph (which
+// FreeType cannot paint) over an empty outline. Such a font is passed
+// over for r, so that another font draws it.
+func (s *Set) drawable(f *face, r rune) bool {
+	gi := C.FT_Get_Char_Index(f.ft, C.FT_ULong(r))
+	if gi == 0 {
+		return false
+	}
+	if !f.color {
+		return true
+	}
+	if ok, seen := f.drawn[r]; seen {
+		return ok
+	}
+	ok := false
+	if s.setSize(f, f.base) == nil &&
+		C.ng_ft_load(f.ft, gi, f.loadFlags, 0, 0) == 0 && C.ng_ft_render(f.ft, 0) == 0 {
+		bm := C.ng_slot(f.ft).bitmap
+		ok = bm.rows > 0 && bm.width > 0
+	}
+	if f.drawn == nil {
+		f.drawn = map[rune]bool{}
+	}
+	f.drawn[r] = ok
+	return ok
+}
+
 // faceFor picks the font for r: 'guifontwide' for double-width cells, then
 // 'guifont' in order, then a fontconfig fallback.
 func (s *Set) faceFor(r rune, style Style, cells int) (f *face, primary bool) {
 	if cells == 2 {
 		for _, f := range s.wides(style) {
-			if hasChar(f, r) {
+			if s.drawable(f, r) {
 				return f, false
 			}
 		}
 	}
 	for i, f := range s.primaries(style) {
-		if hasChar(f, r) {
+		if s.drawable(f, r) {
 			return f, i == 0
 		}
 	}
@@ -570,13 +610,25 @@ func (s *Set) faceFor(r rune, style Style, cells int) (f *face, primary bool) {
 	if f, ok := s.fall[k]; ok {
 		return f, false
 	}
-	f, err := s.load("", style, r, s.size)
-	if err != nil {
-		f = nil
+	// The best font fontconfig finds for r, or the next ones if it cannot
+	// draw r (a COLRv1 emoji font).
+	for nth := 0; nth < maxFallbacks; nth++ {
+		g, err := s.loadNth("", style, r, s.size, nth)
+		if err != nil {
+			break
+		}
+		if s.drawable(g, r) {
+			f = g
+			break
+		}
 	}
 	s.fall[k] = f
 	return f, false
 }
+
+// maxFallbacks is how many fonts faceFor tries for a character that the
+// configured fonts lack.
+const maxFallbacks = 4
 
 // Glyph returns the bitmap for text drawn in cells cells. text is the
 // content of one grid cell: a base character optionally followed by

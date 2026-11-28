@@ -342,6 +342,12 @@ set guifontwide=Noto\ Sans\ Mono\ CJK\ JP\ 14
 later, and the window keeps them when 'guifont' changes. `--geometry`
 only sets the size used before your config runs.
 
+Characters missing from these fonts, emoji for example, come from the
+font fontconfig finds for them. Color emoji are drawn in color from
+bitmap fonts (Noto Color Emoji) and COLR version 0 fonts. FreeType cannot
+draw COLR version 1 glyphs, so ng passes such a font over for them and
+takes the next font that can draw them.
+
 ng reads fonts with FreeType, so the Type 1 "Courier 10 Pitch" works
 directly; no conversion to OpenType is needed. The size is converted to
 pixels like GTK does (points at 96 dpi times the display scale that SDL

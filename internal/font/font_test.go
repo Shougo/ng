@@ -1,7 +1,11 @@
 package font
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -421,5 +425,48 @@ func TestColorEmoji(t *testing.T) {
 	}
 	if g := s.Glyph("a", 0, 1); g.RGBA != nil {
 		t.Error("a glyph of a plain font has colors")
+	}
+}
+
+// A glyph that renders to nothing in its font (a COLRv1 color glyph,
+// which FreeType cannot draw, over an empty outline) must be taken from
+// another font instead of leaving the cell blank. testdata/colrv1.ttf
+// ("NG COLRv1 Test") is such a font for "A" and U+1F40D. fontconfig reads
+// its configuration once, so the check runs in a child process that adds
+// testdata to the font directories.
+func TestUndrawableGlyphFallsBack(t *testing.T) {
+	if os.Getenv("NG_COLRV1_CHILD") == "" {
+		dir, err := filepath.Abs("testdata")
+		if err != nil {
+			t.Fatal(err)
+		}
+		conf := filepath.Join(t.TempDir(), "fonts.conf")
+		xml := `<?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "fonts.dtd"><fontconfig>` +
+			`<include ignore_missing="yes">/etc/fonts/fonts.conf</include>` +
+			`<dir>` + dir + `</dir><cachedir>` + t.TempDir() + `</cachedir></fontconfig>`
+		if err := os.WriteFile(conf, []byte(xml), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command(os.Args[0], "-test.run=^TestUndrawableGlyphFallsBack$", "-test.v")
+		cmd.Env = append(os.Environ(), "NG_COLRV1_CHILD=1", "FONTCONFIG_FILE="+conf)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s", out)
+		}
+		if strings.Contains(string(out), "--- SKIP") {
+			t.Skipf("%s", out)
+		}
+		return
+	}
+	s, err := NewSet("monospace:h12", "NG COLRv1 Test", 96, 0)
+	if err != nil {
+		t.Skip(err)
+	}
+	defer s.Close()
+	if len(s.Warnings) != 0 {
+		t.Skip(s.Warnings)
+	}
+	if s.Glyph("A", 0, 2).Empty() {
+		t.Error(`"A" is blank: its COLRv1 glyph was used instead of another font's`)
 	}
 }
