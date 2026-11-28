@@ -156,6 +156,7 @@ enum {
 	ng_load_target_mono = FT_LOAD_TARGET_MONO,
 	ng_load_target_light = FT_LOAD_TARGET_LIGHT,
 	ng_load_target_normal = FT_LOAD_TARGET_NORMAL,
+	ng_load_color = FT_LOAD_COLOR,
 };
 
 static FT_GlyphSlot ng_slot(FT_Face f) { return f->glyph; }
@@ -183,6 +184,8 @@ static void ng_box(FT_Face f, long *asc, long *desc) {
 }
 static int ng_scalable(FT_Face f) { return FT_IS_SCALABLE(f) ? 1 : 0; }
 static int ng_num_fixed(FT_Face f) { return f->num_fixed_sizes; }
+static int ng_has_color(FT_Face f) { return FT_HAS_COLOR(f) ? 1 : 0; }
+static int ng_ppem(FT_Face f) { return f->size->metrics.y_ppem; }
 static int ng_fixed_height(FT_Face f, int i) { return f->available_sizes[i].height; }
 */
 import "C"
@@ -215,6 +218,10 @@ type Glyph struct {
 	W, H   int
 	Stride int
 	Pix    []byte // W*H alpha values when Stride == W
+	// RGBA is the glyph's own color for a color font (emoji): W*H*4
+	// bytes, straight alpha, drawn as is instead of in the text color.
+	// nil for other glyphs.
+	RGBA []byte
 	// Wide marks a one-cell symbol drawn much wider than its cell (a Nerd
 	// Font icon), shrunk to fit; Spill has it at its own size over two
 	// cells.
@@ -234,6 +241,12 @@ type face struct {
 	mono      bool
 	embolden  bool
 	oblique   bool
+	// color: the font has color glyphs (Noto Color Emoji, COLR fonts).
+	color bool
+	// px scales the metrics and bitmaps of a color bitmap font, whose
+	// fixed strikes FreeType cannot scale (Noto Color Emoji has only
+	// 109 pixels): 1 for every other font.
+	px float64
 }
 
 type faceKey struct {
@@ -440,9 +453,13 @@ func (s *Set) load(family string, style Style, ch rune, size float64) (*face, er
 	if C.FT_New_Face(s.lib, cpath, C.FT_Long(m.index), &ft) != 0 {
 		return nil, fmt.Errorf("font: cannot open %s", path)
 	}
-	f := &face{ft: ft, path: path, index: int(m.index), base: size}
+	f := &face{ft: ft, path: path, index: int(m.index), base: size, px: 1}
 	f.embolden, f.oblique = synthesize(style, m)
 	f.loadFlags, f.mono = loadFlags(m)
+	if C.ng_has_color(ft) != 0 {
+		f.color = true
+		f.loadFlags |= C.ng_load_color
+	}
 	if err := s.setSize(f, size); err != nil {
 		C.FT_Done_Face(ft)
 		return nil, err
@@ -503,6 +520,9 @@ func (s *Set) setSize(f *face, pt float64) error {
 		}
 		if C.FT_Select_Size(f.ft, C.FT_Int(best)) != 0 {
 			return fmt.Errorf("font: cannot select size of %s", f.path)
+		}
+		if ppem := float64(C.ng_ppem(f.ft)); f.color && ppem > 0 {
+			f.px = want / ppem
 		}
 	}
 	f.sizeSet = pt
@@ -596,7 +616,7 @@ func extent(f *face) (left, right float64) {
 	adv := float64(slot.advance.x) / 64
 	inkL := float64(slot.metrics.horiBearingX) / 64
 	inkR := inkL + float64(slot.metrics.width)/64
-	return math.Min(0, inkL), math.Max(adv, inkR)
+	return math.Min(0, inkL) * f.px, math.Max(adv, inkR) * f.px
 }
 
 // spacing reports whether r, after the first character of a cell, takes
@@ -631,7 +651,7 @@ func (s *Set) layoutBox(f *face, text string) (left, right float64, ok bool) {
 		} else {
 			left, right = math.Min(left, pen+lo), math.Max(right, pen+hi)
 		}
-		pen += float64(C.ng_slot(f.ft).advance.x) / 64
+		pen += float64(C.ng_slot(f.ft).advance.x) / 64 * f.px
 	}
 	return left, right, true
 }
@@ -698,7 +718,7 @@ func (s *Set) fit(f *face, text string, primary bool, cells, availW int) (boxL, 
 	}
 	var asc, desc C.long
 	C.ng_box(f.ft, &asc, &desc)
-	if h := float64(asc-desc) / 64; h > float64(s.CellH) {
+	if h := float64(asc-desc) / 64 * f.px; h > float64(s.CellH) {
 		scale = math.Min(scale, float64(s.CellH)/h)
 	}
 	return boxL, boxR, scale, wide
@@ -713,7 +733,7 @@ func (s *Set) baselineFor(f *face, primary bool) int {
 	}
 	var a, d C.long
 	C.ng_box(f.ft, &a, &d)
-	asc, desc := ceil26(a), -floor26(d)
+	asc, desc := int(math.Ceil(float64(a)/64*f.px)), -int(math.Floor(float64(d)/64*f.px))
 	if asc+desc <= s.CellH {
 		return max(asc, min(s.Baseline, s.CellH-desc))
 	}
@@ -739,9 +759,11 @@ func (s *Set) drawText(canvas *canvas, f *face, text string, originX, baseline i
 		}
 		slot := C.ng_slot(f.ft)
 		if spacing(r) || i == 0 {
-			advance = int(math.Round(float64(slot.advance.x) / 64))
+			advance = int(math.Round(float64(slot.advance.x) / 64 * f.px))
 		}
-		x := originX + pen + int(slot.bitmap_left)
+		left := int(math.Round(float64(slot.bitmap_left) * f.px))
+		top := int(math.Round(float64(slot.bitmap_top) * f.px))
+		x := originX + pen + left
 		if i > 0 && !spacing(r) && int(slot.bitmap_left)+int(slot.bitmap.width) <= 0 {
 			// A mark drawn wholly left of its origin is meant to follow the
 			// advance of the character before it (Noto Sans CJK's U+309A
@@ -749,7 +771,7 @@ func (s *Set) drawText(canvas *canvas, f *face, text string, originX, baseline i
 			// fonts sit over their own origin and stay there.
 			x += advance
 		}
-		canvas.draw(&slot.bitmap, x, baseline-int(slot.bitmap_top))
+		canvas.draw(&slot.bitmap, x, baseline-top, f.px)
 	}
 }
 
@@ -765,13 +787,19 @@ func cbool(b bool) C.int {
 type canvas struct {
 	w, h int
 	pix  []byte
+	// rgba holds straight-alpha color, w*h*4, once a color bitmap is drawn.
+	rgba []byte
 }
 
 func newCanvas(w, h int) *canvas { return &canvas{w: w, h: h, pix: make([]byte, w*h)} }
 
-func (c *canvas) draw(bm *C.FT_Bitmap, x0, y0 int) {
+// draw copies bitmap bm to the canvas with its top left at x0, y0,
+// resized by scale (only color bitmap fonts are drawn with scale != 1).
+// Coverage keeps the larger value where glyphs overlap; color pixels
+// keep the color of the more opaque one.
+func (c *canvas) draw(bm *C.FT_Bitmap, x0, y0 int, scale float64) {
 	rows, width := int(bm.rows), int(bm.width)
-	if rows == 0 || width == 0 || bm.buffer == nil {
+	if rows == 0 || width == 0 || bm.buffer == nil || scale <= 0 {
 		return
 	}
 	pitch := int(bm.pitch)
@@ -780,35 +808,92 @@ func (c *canvas) draw(bm *C.FT_Bitmap, x0, y0 int) {
 		absPitch = -absPitch
 	}
 	src := unsafe.Slice((*byte)(unsafe.Pointer(bm.buffer)), absPitch*rows)
-	for y := 0; y < rows; y++ {
-		cy := y0 + y
-		if cy < 0 || cy >= c.h {
-			continue
-		}
+	mode := bm.pixel_mode
+	switch mode {
+	case C.FT_PIXEL_MODE_MONO, C.FT_PIXEL_MODE_GRAY, C.FT_PIXEL_MODE_BGRA:
+	default:
+		return
+	}
+	// sample returns the premultiplied B, G, R and the coverage of the
+	// source pixel at x, y.
+	sample := func(x, y int) (b, g, r, a uint32) {
 		row := src[y*absPitch:]
 		if pitch < 0 {
 			row = src[(rows-1-y)*absPitch:]
 		}
-		for x := 0; x < width; x++ {
-			cx := x0 + x
+		switch mode {
+		case C.FT_PIXEL_MODE_MONO:
+			if row[x>>3]&(0x80>>(x&7)) != 0 {
+				return 0xff, 0xff, 0xff, 0xff
+			}
+			return 0, 0, 0, 0
+		case C.FT_PIXEL_MODE_GRAY:
+			v := uint32(row[x])
+			return v, v, v, v
+		default: // BGRA, premultiplied
+			p := row[x*4:]
+			return uint32(p[0]), uint32(p[1]), uint32(p[2]), uint32(p[3])
+		}
+	}
+	color := mode == C.FT_PIXEL_MODE_BGRA
+	if color && c.rgba == nil {
+		c.rgba = make([]byte, c.w*c.h*4)
+		// Gray pixels already drawn become white.
+		for i, a := range c.pix {
+			if a != 0 {
+				c.rgba[i*4], c.rgba[i*4+1], c.rgba[i*4+2], c.rgba[i*4+3] = 0xff, 0xff, 0xff, a
+			}
+		}
+	}
+	dw, dh := width, rows
+	if scale != 1 {
+		dw = max(1, int(math.Round(float64(width)*scale)))
+		dh = max(1, int(math.Round(float64(rows)*scale)))
+	}
+	for dy := 0; dy < dh; dy++ {
+		cy := y0 + dy
+		if cy < 0 || cy >= c.h {
+			continue
+		}
+		// The source rows that make up this row: a box filter.
+		sy0, sy1 := dy, dy+1
+		if scale != 1 {
+			sy0 = int(float64(dy) / scale)
+			sy1 = max(sy0+1, min(rows, int(float64(dy+1)/scale)))
+		}
+		for dx := 0; dx < dw; dx++ {
+			cx := x0 + dx
 			if cx < 0 || cx >= c.w {
 				continue
 			}
-			var a byte
-			switch bm.pixel_mode {
-			case C.FT_PIXEL_MODE_MONO:
-				if row[x>>3]&(0x80>>(x&7)) != 0 {
-					a = 0xff
-				}
-			case C.FT_PIXEL_MODE_GRAY:
-				a = row[x]
-			case C.FT_PIXEL_MODE_BGRA:
-				a = row[x*4+3]
-			default:
-				continue
+			sx0, sx1 := dx, dx+1
+			if scale != 1 {
+				sx0 = int(float64(dx) / scale)
+				sx1 = max(sx0+1, min(width, int(float64(dx+1)/scale)))
 			}
-			if p := &c.pix[cy*c.w+cx]; a > *p {
-				*p = a
+			var sb, sg, sr, sa, n uint32
+			for y := sy0; y < sy1; y++ {
+				for x := sx0; x < sx1; x++ {
+					b, g, r, a := sample(x, y)
+					sb, sg, sr, sa, n = sb+b, sg+g, sr+r, sa+a, n+1
+				}
+			}
+			a := byte(sa / n)
+			i := cy*c.w + cx
+			if c.rgba != nil && a != 0 && a >= c.pix[i] {
+				o := i * 4
+				if color {
+					// Back from premultiplied to straight alpha.
+					c.rgba[o] = byte(min(255, sr*255/sa))
+					c.rgba[o+1] = byte(min(255, sg*255/sa))
+					c.rgba[o+2] = byte(min(255, sb*255/sa))
+				} else {
+					c.rgba[o], c.rgba[o+1], c.rgba[o+2] = 0xff, 0xff, 0xff
+				}
+				c.rgba[o+3] = a
+			}
+			if a > c.pix[i] {
+				c.pix[i] = a
 			}
 		}
 	}
@@ -832,6 +917,12 @@ func (c *canvas) trim() *Glyph {
 	g := &Glyph{X: minX, Y: minY, W: w, H: h, Stride: w, Pix: make([]byte, w*h)}
 	for y := 0; y < h; y++ {
 		copy(g.Pix[y*w:(y+1)*w], c.pix[(minY+y)*c.w+minX:])
+	}
+	if c.rgba != nil {
+		g.RGBA = make([]byte, w*h*4)
+		for y := 0; y < h; y++ {
+			copy(g.RGBA[y*w*4:(y+1)*w*4], c.rgba[((minY+y)*c.w+minX)*4:])
+		}
 	}
 	return g
 }

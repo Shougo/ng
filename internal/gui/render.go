@@ -165,7 +165,11 @@ func (a *App) DrawGlyph(g *font.Glyph, x, y int, c screen.Color) {
 				return
 			}
 		}
-		a.upload = atlas.AlphaToRGBA(g.Pix, g.W, g.H, g.Stride, a.upload)
+		if g.RGBA != nil {
+			a.upload = append(a.upload[:0], g.RGBA...)
+		} else {
+			a.upload = atlas.AlphaToRGBA(g.Pix, g.W, g.H, g.Stride, a.upload)
+		}
 		C.ng_update(a.atlasTex, C.int(px), C.int(py), C.int(g.W), C.int(g.H),
 			unsafe.Pointer(&a.upload[0]), C.int(g.W*4))
 		r = rect{px, py, g.W, g.H}
@@ -173,6 +177,10 @@ func (a *App) DrawGlyph(g *font.Glyph, x, y int, c screen.Color) {
 	}
 	cr, cg, cb := c.RGB()
 	col := C.SDL_FColor{r: C.float(cr) / 255, g: C.float(cg) / 255, b: C.float(cb) / 255, a: 1}
+	if g.RGBA != nil {
+		// A color glyph (emoji) keeps its own colors.
+		col = C.SDL_FColor{r: 1, g: 1, b: 1, a: 1}
+	}
 	x0, y0 := C.float(x), C.float(y)
 	x1, y1 := C.float(x+r.w), C.float(y+r.h)
 	u0, v0 := C.float(r.x)/atlasSize, C.float(r.y)/atlasSize

@@ -385,3 +385,41 @@ func TestTrailingMark(t *testing.T) {
 	}
 	checkFits(t, s, g, 2, "カ\u309a")
 }
+
+// Noto Color Emoji has only 109-pixel bitmaps, which FreeType cannot
+// scale: they were drawn at that size and clipped to the cells, and their
+// colors were dropped. They must fit their two cells, in color.
+func TestColorEmoji(t *testing.T) {
+	s, err := NewSet("DejaVu Sans Mono:h24", "Noto Color Emoji", 96, 0)
+	if err != nil {
+		t.Skip(err)
+	}
+	defer s.Close()
+	if len(s.Warnings) != 0 {
+		t.Skip(s.Warnings)
+	}
+	for _, e := range []string{"🐍", "🚀", "🎉"} {
+		g := s.Glyph(e, 0, 2)
+		checkFits(t, s, g, 2, e)
+		if g.W < s.CellW*3/2 || g.H < s.CellH/2 {
+			t.Errorf("%s is %dx%d in two %dx%d cells: drawn too small or clipped", e, g.W, g.H, s.CellW, s.CellH)
+		}
+		if g.RGBA == nil {
+			t.Errorf("%s has no colors", e)
+			continue
+		}
+		gray := true
+		for i := 0; i+3 < len(g.RGBA); i += 4 {
+			if g.RGBA[i+3] != 0 && (g.RGBA[i] != g.RGBA[i+1] || g.RGBA[i+1] != g.RGBA[i+2]) {
+				gray = false
+				break
+			}
+		}
+		if gray {
+			t.Errorf("%s is drawn in gray only", e)
+		}
+	}
+	if g := s.Glyph("a", 0, 1); g.RGBA != nil {
+		t.Error("a glyph of a plain font has colors")
+	}
+}

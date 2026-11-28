@@ -46,12 +46,18 @@ func (p *ImagePainter) DrawGlyph(g *font.Glyph, x, y int, c screen.Color) {
 				continue
 			}
 			a := uint32(g.Pix[gy*g.Stride+gx])
+			sr, sg, sb := fr, fg, fb
+			if g.RGBA != nil {
+				// A color glyph (emoji) keeps its own colors.
+				o := (gy*g.W + gx) * 4
+				sr, sg, sb, a = g.RGBA[o], g.RGBA[o+1], g.RGBA[o+2], uint32(g.RGBA[o+3])
+			}
 			if a == 0 {
 				continue
 			}
 			d := p.Img.RGBAAt(px, py)
 			mix := func(s, d uint8) uint8 { return uint8((uint32(s)*a + uint32(d)*(255-a)) / 255) }
-			p.Img.SetRGBA(px, py, color.RGBA{mix(fr, d.R), mix(fg, d.G), mix(fb, d.B), 0xff})
+			p.Img.SetRGBA(px, py, color.RGBA{mix(sr, d.R), mix(sg, d.G), mix(sb, d.B), 0xff})
 		}
 	}
 }
